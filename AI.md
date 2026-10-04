@@ -42,7 +42,7 @@ Example:
 
 ## Rules
 
-The AI must:
+The AI do:
 - use only supplied evidence
 - acknowledge uncertainty
 - distinguish correlation from causation
@@ -50,7 +50,7 @@ The AI must:
 - never invent measurements
 - never claim to have run a test it did not run
 
-The AI must not:
+The AI does not:
 - execute commands
 - modify settings
 - install software
@@ -59,7 +59,7 @@ The AI must not:
 
 ## Provider abstraction
 
-Use an interface so the application can support:
+ Application can support:
 
 ```text
 NoAIProvider
@@ -67,4 +67,4 @@ HostedLLMProvider
 LocalLLMProvider
 ```
 
-The project should run normally with `NoAIProvider`.
+The project run normally with `NoAIProvider`.
