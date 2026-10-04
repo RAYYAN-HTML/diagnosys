@@ -68,10 +68,6 @@ diagnosys diagnose --window 3600
 
 **Deterministic Rules:** While AI explanation layers are planned for the future, the core diagnostic engine operates on 100% deterministic, transparent Python code (see `src/diagnosys/diagnostics/rules.py`).
 
-## Contributing
-
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests.
-
 ## License
 
 This project is licensed under the MIT License.
