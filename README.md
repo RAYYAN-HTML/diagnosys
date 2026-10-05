@@ -21,7 +21,7 @@ Diagnosys is built for Python 3.11+.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/diagnosys.git
+git clone https://github.com/RAYYAN-HTML/diagnosys.git
 cd diagnosys
 
 # Create a virtual environment
