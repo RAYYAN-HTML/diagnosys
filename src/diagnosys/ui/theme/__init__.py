@@ -1,0 +1,1 @@
+"""Diagnosys visual theme."""
