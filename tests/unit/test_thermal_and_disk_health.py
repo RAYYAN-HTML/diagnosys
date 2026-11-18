@@ -148,6 +148,7 @@ def test_thermal_collector_keeps_valid_sensors_when_one_sensor_is_malformed():
     with patch(
         "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
         return_value={"coretemp": [valid], "broken": [malformed]},
+        create=True,
     ):
         with patch(
             "diagnosys.collectors.system.thermal.psutil.sensors_fans",
@@ -166,6 +167,7 @@ def test_thermal_collector_reports_fans_when_temperature_api_is_empty():
     with patch(
         "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
         return_value={},
+        create=True,
     ):
         with patch(
             "diagnosys.collectors.system.thermal.psutil.sensors_fans",
