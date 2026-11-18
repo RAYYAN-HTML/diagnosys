@@ -34,7 +34,7 @@ class PingCollector(Collector):
         # Preserve reply order because jitter is calculated from successive probes.
         # Less-than values are estimates, not additional exact replies.
         times = []
-        pattern = r"time(=|<)([0-9]+(?:\\.[0-9]+)?)\\s*ms"
+        pattern = r"time(=|<)([0-9]+(?:\.[0-9]+)?)\s*ms"
         for match in re.finditer(pattern, output, re.IGNORECASE):
             try:
                 value = float(match.group(2))
