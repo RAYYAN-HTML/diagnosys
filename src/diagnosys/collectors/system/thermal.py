@@ -47,19 +47,19 @@ class ThermalCollector:
 
     def collect(self) -> ThermalSnapshot:
         temperature_api = getattr(psutil, "sensors_temperatures", None)
-        if not callable(temperature_api):
-            return ThermalSnapshot(
-                False,
-                reason="Temperature sensors are not exposed by this operating system.",
-            )
-
-        try:
-            raw_temperatures = temperature_api(fahrenheit=False) or {}
-        except (OSError, RuntimeError, NotImplementedError, AttributeError, TypeError, ValueError, psutil.Error) as exc:
-            return ThermalSnapshot(False, reason=f"Thermal telemetry unavailable: {exc}")
+        temperature_reason = None
+        raw_temperatures = {}
+        if callable(temperature_api):
+            try:
+                raw_temperatures = temperature_api(fahrenheit=False) or {}
+            except (OSError, RuntimeError, NotImplementedError, AttributeError, TypeError, ValueError, psutil.Error) as exc:
+                temperature_reason = f"Temperature telemetry unavailable: {exc}"
+        else:
+            temperature_reason = "Temperature sensors are not exposed by this operating system."
 
         if not isinstance(raw_temperatures, dict):
-            return ThermalSnapshot(False, reason="The operating system returned malformed temperature sensor data.")
+            temperature_reason = "The operating system returned malformed temperature sensor data."
+            raw_temperatures = {}
 
         temperatures: list[ThermalReading] = []
         invalid_readings = 0
@@ -111,6 +111,8 @@ class ThermalCollector:
                         fans.append(FanReading(str(sensor), str(label), speed))
 
         issues = []
+        if temperature_reason:
+            issues.append(temperature_reason)
         if invalid_readings:
             issues.append(f"{invalid_readings} malformed or empty temperature reading(s) were skipped")
         if fan_reason:
