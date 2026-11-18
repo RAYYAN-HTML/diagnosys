@@ -139,3 +139,39 @@ def test_smartctl_nonzero_nvme_media_errors_are_a_warning_even_when_smart_passes
     assert result.health_status == "WARNING"
     assert result.media_errors == 3
     assert "3 NVMe media error" in result.reason
+
+
+def test_thermal_collector_keeps_valid_sensors_when_one_sensor_is_malformed():
+    valid = SimpleNamespace(label="CPU Package", current=67.5, high=90.0, critical=105.0)
+    malformed = SimpleNamespace(label="Broken", current=float("nan"), high=None, critical=None)
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value={"coretemp": [valid], "broken": [malformed]},
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+    assert result.available
+    assert len(result.temperatures) == 1
+    assert result.temperatures[0].temperature_c == 67.5
+    assert result.temperatures[0].high_c == 90.0
+
+
+def test_thermal_collector_reports_fans_when_temperature_api_is_empty():
+    fan = SimpleNamespace(label="CPU Fan", current=1200)
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value={},
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={"nct": [fan]},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+    assert result.available
+    assert not result.temperatures
+    assert result.fans[0].speed_rpm == 1200.0
