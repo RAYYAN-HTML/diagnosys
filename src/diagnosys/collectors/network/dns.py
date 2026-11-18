@@ -38,7 +38,7 @@ class DNSCollector(Collector):
         if not labels or any(not label or len(label.encode("idna")) > 63 for label in labels):
             raise ValueError("The DNS target is not a valid hostname")
         question = b"".join(bytes((len(label.encode("idna")),)) + label.encode("idna") for label in labels) + b"\x00\x00\x01\x00\x01"
-        identifier = random.randrange(0, 65536)
+        identifier = secrets.randbelow(65536)
         packet = struct.pack("!HHHHHH", identifier, 0x0100, 1, 0, 0, 0) + question
         family = socket.AF_INET6 if server.version == 6 else socket.AF_INET
         with socket.socket(family, socket.SOCK_DGRAM) as client:
@@ -49,6 +49,10 @@ class DNSCollector(Collector):
         if len(response) < 12 or struct.unpack("!H", response[:2])[0] != identifier:
             raise OSError("DNS server returned an invalid response")
         flags = struct.unpack("!H", response[2:4])[0]
+        if not flags & 0x8000:
+            raise OSError("DNS server response did not contain the response flag")
+        if flags & 0x0200:
+            raise OSError("DNS server returned a truncated UDP response")
         if flags & 0x000F:
             raise OSError(f"DNS server returned response code {flags & 0x000F}")
         
