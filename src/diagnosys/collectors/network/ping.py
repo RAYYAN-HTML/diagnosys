@@ -22,7 +22,7 @@ class PingCollector(Collector):
         # Parse exact values and less-than values separately. A response such as
         # Windows "time<1ms" must contribute one estimate, not two samples.
         times = []
-        for match in re.finditer(r"time=([0-9]+(?:\\.[0-9]+)?)\\s*ms", output, re.IGNORECASE):
+        for match in re.finditer(r"time=([0-9]+(?:\.[0-9]+)?)\s*ms", output, re.IGNORECASE):
             try:
                 value = float(match.group(1))
             except ValueError:
