@@ -96,3 +96,42 @@ def test_dns_collector_rejects_invalid_hostname_and_timeout():
         DNSCollector(target="invalid host name")
     with pytest.raises(ValueError, match="timeout_sec"):
         DNSCollector(timeout_sec=0)
+
+
+def test_dns_explicit_server_uses_bounded_socket_timeout_and_validates_response():
+    import struct
+
+    fake_socket = MagicMock()
+    fake_socket.__enter__.return_value = fake_socket
+
+    def respond(_size):
+        query = fake_socket.sendto.call_args.args[0]
+        query_id = struct.unpack("!H", query[:2])[0]
+        return struct.pack("!HHHHHH", query_id, 0x8180, 1, 1, 0, 0), ("1.1.1.1", 53)
+
+    fake_socket.recvfrom.side_effect = respond
+    with patch("diagnosys.collectors.network.dns.socket.socket", return_value=fake_socket):
+        metrics = DNSCollector(target="example.com", server="1.1.1.1", timeout_sec=1.25).collect()
+
+    assert metrics.success
+    assert metrics.server == "1.1.1.1"
+    fake_socket.settimeout.assert_called_once_with(1.25)
+
+
+def test_dns_explicit_server_rejects_truncated_udp_response():
+    import struct
+
+    fake_socket = MagicMock()
+    fake_socket.__enter__.return_value = fake_socket
+
+    def respond(_size):
+        query = fake_socket.sendto.call_args.args[0]
+        query_id = struct.unpack("!H", query[:2])[0]
+        return struct.pack("!HHHHHH", query_id, 0x8380, 1, 0, 0, 0), ("1.1.1.1", 53)
+
+    fake_socket.recvfrom.side_effect = respond
+    with patch("diagnosys.collectors.network.dns.socket.socket", return_value=fake_socket):
+        metrics = DNSCollector(target="example.com", server="1.1.1.1").collect()
+
+    assert not metrics.success
+    assert "truncated" in metrics.reason
