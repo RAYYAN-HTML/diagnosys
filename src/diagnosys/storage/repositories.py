@@ -21,7 +21,7 @@ class MetricRepository:
         """, (
             serialize_timestamp(sample.timestamp),
             sample.metric_name,
-            float(sample.value) if sample.value is not None else 0.0,
+            float(sample.value) if sample.value is not None else None,
             sample.unit,
             sample.source,
             sample.entity_id,

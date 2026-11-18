@@ -23,13 +23,13 @@ class ProcessRepository:
         self.conn.executemany(
             """INSERT INTO process_samples
             (timestamp, pid, process_name, cpu_percent, memory_percent,
-             read_bytes_per_sec, write_bytes_per_sec, network_connection_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+             read_bytes_per_sec, write_bytes_per_sec, network_connection_count, thread_count, create_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     timestamp, process.pid, process.name, process.cpu_percent, process.memory_percent,
                     process.read_bytes_per_sec, process.write_bytes_per_sec,
-                    process.network_connection_count,
+                    process.network_connection_count, process.thread_count, process.create_time,
                 )
                 for process in samples.values()
             ],
@@ -40,7 +40,7 @@ class ProcessRepository:
         cutoff = serialize_timestamp(datetime.now(timezone.utc) - timedelta(seconds=window_seconds))
         cursor = self.conn.execute(
             """SELECT timestamp, pid, process_name, cpu_percent, memory_percent,
-            read_bytes_per_sec, write_bytes_per_sec, network_connection_count
+            read_bytes_per_sec, write_bytes_per_sec, network_connection_count, thread_count, create_time
             FROM process_samples WHERE timestamp >= ?
             ORDER BY timestamp DESC LIMIT ?""",
             (cutoff, max(1, min(limit, 50000))),
@@ -50,7 +50,7 @@ class ProcessRepository:
     def query_between(self, start: datetime, end: datetime, limit: int = 50000) -> list[dict]:
         cursor = self.conn.execute(
             """SELECT timestamp, pid, process_name, cpu_percent, memory_percent,
-            read_bytes_per_sec, write_bytes_per_sec, network_connection_count
+            read_bytes_per_sec, write_bytes_per_sec, network_connection_count, thread_count, create_time
             FROM process_samples WHERE timestamp >= ? AND timestamp <= ?
             ORDER BY timestamp ASC LIMIT ?""",
             (serialize_timestamp(start), serialize_timestamp(end), max(1, min(limit, 250000))),

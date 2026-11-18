@@ -1,148 +1,63 @@
-# Diagnosys — Do & Don't
+# Diagnosys Development Guidelines
 
-## DO
+## Core principles
 
-- Build the deterministic diagnostic engine first.
-- Keep measurements separate from diagnoses.
-- Show evidence for every important conclusion.
-- Track the time window used.
-- Use historical baselines where possible.
-- Make uncertainty visible.
-- Handle unavailable metrics explicitly.
-- Use bounded network timeouts.
-- Isolate collector failures.
-- Keep data local by default.
-- Write tests for calculations and diagnostic rules.
-- Use dependency injection where it improves testability.
-- Keep the GUI simple and task focused.
-- Keep the diagnostic engine independent from the GUI.
-- Document assumptions.
-- Prefer safe read-only diagnostics.
-- Make bandwidth-heavy operations opt-in.
-- Keep AI optional.
+- Keep Diagnosys deterministic, local-first, and evidence-based.
+- Keep measurements separate from diagnostic findings.
+- Show the time window, source, and freshness of important observations.
+- Use personal baselines when sufficient history exists.
+- Make missing data, unsupported capabilities, and collection errors explicit.
+- Isolate collector failures and use bounded timeouts.
+- Keep collectors, storage, diagnostics, and UI in separate layers.
+- Run slow collection outside the Qt UI thread.
+- Prefer safe, read-only diagnostics.
+- Write hardware-independent tests using mocks.
+- Document assumptions, limitations, and platform differences.
+- Avoid rewriting working modules without a concrete reason.
 
-## DON'T
+## Diagnostic language
 
-### Don't call correlation causation
+Prefer:
+- observed
+- elevated relative to this device's baseline
+- repeated during the capture window
+- correlated in time
+- insufficient evidence
+- unavailable
 
-Bad:
+Do not claim correlation proves causation. Do not call a process malicious based on resource usage. Do not describe a device as healthy when its health data is unavailable.
 
-> CPU caused my Internet to lag.
+## Avoid misleading metrics
 
-Better:
+- No fabricated measurements, FPS, frame-time, or benchmark values.
+- No diagnostic confidence percentages or arbitrary hypothesis scores.
+- No overall health score without a defensible, documented measurement model.
+- No universal hardware thresholds presented as authoritative.
+- Do not substitute stale values without clearly marking them stale.
 
-> CPU utilization and network latency increased during the same interval. This is a correlation; additional testing is needed to establish causation.
+## Platform compatibility
 
-### Don't equate ping with speed
+Windows, Linux, and macOS expose different metrics and permissions. Use capability detection and report unsupported features explicitly. The normal workflow should not require administrator or root privileges.
 
-Latency, jitter, packet loss, and throughput are different properties.
+## Safety and privacy
 
-### Don't blame the ISP automatically
+- Do not collect passwords, tokens, cookies, browser history, keystrokes, private messages, or arbitrary personal files.
+- Do not silently upload measurements or reports.
+- SMART and other device health queries must remain read-only.
+- Any future operation that changes system state requires explicit user confirmation, an explanation, and a rollback plan where practical.
 
-A network problem can originate from:
-- local Wi-Fi
-- router
-- local machine
-- access point
-- DNS
-- network path
-- remote service
-- ISP
-
-The tool should not identify the cause beyond its evidence.
-
-### Don't make AI the brain
-
-AI is an explanation layer.
-
-The measured facts and deterministic diagnostics remain authoritative.
-
-### Don't execute AI-generated commands
-
-Never automatically execute commands produced by an LLM.
-
-### Don't collect private data
-
-Never collect:
-- passwords
-- tokens
-- cookies
-- browser history
-- keystrokes
-- private messages
-- arbitrary personal files
-
-### Don't silently upload data
-
-No hidden telemetry.
-
-### Don't require admin/root
-
-The normal workflow should not require elevated privileges.
-
-### Don't hard-code platform assumptions
-
-Windows, Linux, and macOS differ.
-
-Use capability detection.
-
-### Don't use magic numbers
-
-Bad:
-
-```python
-if ping > 200:
-    ...
-```
-
-without documenting why.
-
-Prefer named thresholds/configuration.
-
-### Don't crash because a sensor is missing
-
-Represent unsupported capabilities explicitly.
-
-### Don't add infrastructure prematurely
-
-No microservices, Kubernetes, Redis, Kafka, or distributed databases for the initial local app.
-
-### Don't rewrite working modules unnecessarily
-
-Prefer small, reviewable changes.
-
-### Don't hide failures
-
-If a measurement failed, report that it failed.
-
-Never substitute fake or stale values without marking them.
-
-## Safety boundary
-
-Diagnosys should primarily be a read-only diagnostic tool.
-
-## Current interface
-
-The supported application workflow is:
+## Current application workflow
 
 ```text
 python -m diagnosys
-        ↓
+        |
 desktop dashboard
         ├── live system metrics and history
         ├── network health checks
-        ├── evidence-based diagnosis
+        ├── evidence-based investigations
         ├── capability inspection
         ├── incident history
-        └── Markdown / JSON report export
+        └── report export
 ```
 
-Do not move diagnostic logic into button handlers. GUI actions should call the
-existing collectors, repositories, and deterministic engines.
-
-Any future feature that changes system state must:
-1. be explicitly designed
-2. require user confirmation
-3. explain the change
-4. provide a safe rollback where practical
-5. never be triggered directly by an AI-generated instruction
+GUI actions should call existing collectors, repositories, and deterministic engines. Do not put diagnostic logic in button handlers. Do not add placeholder controls.

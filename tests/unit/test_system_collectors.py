@@ -76,7 +76,7 @@ def test_disk_collector(mock_io_counters, mock_disk_usage, mock_disk_partitions)
     metrics1 = collector.collect()
     assert metrics1.available is True
     assert metrics1.total_bytes == 500000000000
-    assert metrics1.read_bytes_per_sec == 0.0
+    assert metrics1.read_bytes_per_sec is None
     
     # Need a time diff for IO
     with patch("time.time", return_value=100.0):

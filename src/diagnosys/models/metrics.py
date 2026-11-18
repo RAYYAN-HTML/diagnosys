@@ -43,8 +43,8 @@ class DiskMetrics:
     total_bytes: int
     free_bytes: int
     percent_used: float
-    read_bytes_per_sec: float
-    write_bytes_per_sec: float
+    read_bytes_per_sec: Optional[float]
+    write_bytes_per_sec: Optional[float]
     busy_percent: Optional[float]
     available: bool = True
     reason: Optional[str] = None
@@ -59,6 +59,8 @@ class ProcessInfo:
     read_bytes_per_sec: Optional[float] = None
     write_bytes_per_sec: Optional[float] = None
     network_connection_count: Optional[int] = None
+    thread_count: Optional[int] = None
+    create_time: Optional[float] = None
 
 @dataclass
 class ProcessSnapshot:

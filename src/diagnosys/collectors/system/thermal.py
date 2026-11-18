@@ -48,5 +48,5 @@ class ThermalCollector:
             if not temperatures and not fans:
                 return ThermalSnapshot(False, reason="No temperature or fan readings were exposed by this device.")
             return ThermalSnapshot(True, temperatures, fans)
-        except (OSError, RuntimeError, NotImplementedError) as exc:
+        except (OSError, RuntimeError, NotImplementedError, AttributeError, TypeError, ValueError, psutil.Error) as exc:
             return ThermalSnapshot(False, reason=f"Thermal telemetry unavailable: {exc}")

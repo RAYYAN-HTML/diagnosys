@@ -22,8 +22,8 @@ class DiskCollector(Collector):
             usage = psutil.disk_usage(primary_mount)
             
             # Disk IO
-            read_bytes_per_sec = 0.0
-            write_bytes_per_sec = 0.0
+            read_bytes_per_sec = None
+            write_bytes_per_sec = None
             busy_percent = None
             
             try:
@@ -59,8 +59,8 @@ class DiskCollector(Collector):
                 total_bytes=0,
                 free_bytes=0,
                 percent_used=0.0,
-                read_bytes_per_sec=0.0,
-                write_bytes_per_sec=0.0,
+                read_bytes_per_sec=None,
+                write_bytes_per_sec=None,
                 busy_percent=None,
                 available=False,
                 reason=f"error: {str(e)}"

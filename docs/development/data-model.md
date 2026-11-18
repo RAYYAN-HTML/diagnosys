@@ -2,8 +2,6 @@
 
 ## MetricSample
 
-Conceptually:
-
 ```text
 MetricSample
 ├── timestamp
@@ -12,7 +10,7 @@ MetricSample
 ├── unit
 ├── source
 ├── entity_id (optional)
-└── status
+└── status / reason
 ```
 
 ## NetworkProbe
@@ -59,13 +57,23 @@ Evidence
 ```text
 DiagnosisHypothesis
 ├── category
-├── score
-├── confidence
 ├── evidence[]
 ├── contradictory_evidence[]
 ├── limitations[]
 └── recommended_checks[]
 ```
+
+Hypotheses do not contain probability, confidence, or arbitrary score fields. Ordering is based on the number and type of recorded observations, and the UI must explain that this is evidence ordering rather than probability.
+
+## Hardware history
+
+- `thermal_samples`: timestamp, sensor identity, label, temperature or fan RPM, and hardware-reported limits where available.
+- `disk_health_samples`: timestamp, device identity, SMART/NVMe health fields, state, and collection reason.
+- `game_sessions`: process identity and observed session start/end.
+- `game_process_samples`: per-process CPU, memory, thread count, disk I/O, and contemporaneous system CPU/GPU context.
+- `process_samples`: sampled process resource usage, start time, thread count, disk I/O, and available connection counts.
+
+Missing values remain NULL and must not be converted to fabricated zeroes. SQLite schema migration 9 makes metric values nullable while preserving existing metric rows and timestamp indexes.
 
 ## DiagnosisResult
 
@@ -93,7 +101,4 @@ Investigation
 └── redacted support export
 ```
 
-An empty anomaly list is not sufficient to call an investigation healthy. The
-capture also records how much usable measurement history is available.
-
-The exact Python representation may evolve, but the concepts should remain stable.
+An empty anomaly list is not sufficient to call an investigation healthy. The capture also records how much usable measurement history is available.

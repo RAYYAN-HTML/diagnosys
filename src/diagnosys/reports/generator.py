@@ -85,15 +85,14 @@ class ReportGenerator:
             
         lines.append("\n[ DIAGNOSES ]")
         if not report.diagnoses.primary_hypothesis:
-            lines.append("  System appears healthy. No critical issues detected.")
+            lines.append("  No baseline-relative anomaly was recorded in this reporting window.")
         else:
             h = report.diagnoses.primary_hypothesis
-            lines.append(f"  Primary: {h.category} (Score: {h.score:.2f})")
-            lines.append(f"  Confidence: {h.confidence}")
+            lines.append(f"  Primary evidence pattern: {h.category}")
             for evidence in h.evidence:
                 lines.append(
                     f"  Evidence: {evidence.metric} = {evidence.observed_value:.1f} "
-                    f"(threshold {evidence.expected_value:.1f})"
+                    f"(baseline reference {evidence.expected_value:.1f}; {evidence.strength.lower()})"
                 )
             if h.recommended_checks:
                 lines.append(f"     Recommendations:")
@@ -105,7 +104,7 @@ class ReportGenerator:
                     lines.append(f"       - {limitation}")
             
             for idx, h in enumerate(report.diagnoses.alternatives, 1):
-                lines.append(f"  Alternative {idx}: {h.category} (Score: {h.score:.2f})")
+                lines.append(f"  Alternative evidence pattern {idx}: {h.category}")
                         
         lines.append("\n[ RECENT ANOMALIES ]")
         if not report.recent_anomalies:
@@ -114,7 +113,7 @@ class ReportGenerator:
             for anomaly in report.recent_anomalies:
                 lines.append(
                     f"  {anomaly.category} · {anomaly.metric}: {anomaly.observed_value:.1f} "
-                    f"(threshold {anomaly.expected_value:.1f}) · {anomaly.explanation}"
+                    f"(reference {anomaly.expected_value:.1f}) · {anomaly.explanation}"
                 )
 
         return "\n".join(lines)
@@ -206,17 +205,17 @@ class ReportGenerator:
             
         lines.append("## Diagnoses")
         if not report.diagnoses.primary_hypothesis:
-            lines.append("System appears healthy. No critical issues detected.")
+            lines.append("No baseline-relative anomaly was recorded in this reporting window.")
         else:
             h = report.diagnoses.primary_hypothesis
             lines.append(f"### Primary: {h.category.replace('_', ' ').title()}")
-            lines.append(f"Confidence: {h.confidence} · Score: {h.score:.2f}\n")
+            lines.append("Findings are ordered by observed evidence count, not probability.")
             if h.evidence:
                 lines.append("**Supporting evidence:**")
                 for item in h.evidence:
                     lines.append(
                         f"- {item.metric.replace('_', ' ')}: {item.observed_value:.1f} "
-                        f"(threshold {item.expected_value:.1f}, {item.time_window // 60} minute window)"
+                        f"(baseline reference {item.expected_value:.1f}, {item.time_window // 60} minute window; {item.strength.lower()})"
                     )
             if h.recommended_checks:
                 lines.append("")
@@ -231,14 +230,14 @@ class ReportGenerator:
             lines.append("")
             
             for idx, h in enumerate(report.diagnoses.alternatives, 1):
-                lines.append(f"### Alternative {idx}: {h.category.replace('_', ' ').title()} (Score: {h.score:.2f})")
+                lines.append(f"### Alternative {idx}: {h.category.replace('_', ' ').title()}")
                 lines.append("")
 
         lines.append("## Recent anomalies")
         if not report.recent_anomalies:
             lines.append("No anomalies were recorded in the last 24 hours.")
         else:
-            lines.append("| Time (UTC) | Category | Metric | Observed | Threshold |")
+            lines.append("| Time (UTC) | Category | Metric | Observed | Reference |")
             lines.append("|---|---|---|---:|---:|")
             for anomaly in report.recent_anomalies:
                 timestamp = anomaly.timestamp

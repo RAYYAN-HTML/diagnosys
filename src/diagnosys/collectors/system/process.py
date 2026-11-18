@@ -17,7 +17,7 @@ class ProcessCollector(Collector):
             processes = []
             process_handles = {}
             
-            for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent']):
+            for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'num_threads', 'create_time']):
                 try:
                     info = proc.info
                     process_info = ProcessInfo(
@@ -26,6 +26,8 @@ class ProcessCollector(Collector):
                             username=info['username'],
                             cpu_percent=info['cpu_percent'] or 0.0,
                             memory_percent=info['memory_percent'] or 0.0,
+                            thread_count=info.get('num_threads'),
+                            create_time=info.get('create_time'),
                         )
                     processes.append(process_info)
                     process_handles[process_info.pid] = proc

@@ -148,24 +148,6 @@ class InvestigationEngine:
                 "detail": "The monitor may have been paused, or the capture window may predate available history.",
                 "strength": "limited",
             })
-        else:
-            for metric, label, threshold, description in (
-                ("cpu_percent", "CPU", 80.0, "Sustained processor load may make other work feel slower."),
-                ("memory_percent", "Memory", 85.0, "High memory use can increase paging and application delays."),
-                ("disk_percent", "System drive", 95.0, "Very little free space can interfere with updates and application work."),
-                ("gpu_percent", "GPU", 95.0, "The graphics processor was near full utilization in this window."),
-                ("cpu_temperature_c", "CPU temperature", 90.0, "This is a high reading; sensor labels and safe ranges vary by device."),
-                ("gpu_temperature_c", "GPU temperature", 85.0, "This is a high reading; sensor labels and safe ranges vary by device."),
-            ):
-                current = stats.get(metric)
-                if current and float(current["p95"]) >= threshold:
-                    findings.append({
-                        "kind": "measurement",
-                        "title": f"{label} was elevated",
-                        "detail": f"95th percentile {current['p95']:.1f}; peak {current['max']:.1f}. {description}",
-                        "strength": "repeated",
-                    })
-
         anomaly_counts: dict[str, int] = defaultdict(int)
         for anomaly in anomalies:
             anomaly_counts[anomaly.category] += 1
@@ -178,10 +160,11 @@ class InvestigationEngine:
             "PACKET_LOSS": "Packet loss was recorded",
             "DNS_LATENCY": "Slow DNS responses were recorded",
             "HTTP_LATENCY": "Slow HTTP responses were recorded",
+            "THERMAL_LIMIT": "A hardware-reported thermal limit was reached",
         }
         for category, count in sorted(anomaly_counts.items(), key=lambda pair: (-pair[1], pair[0])):
             examples = [item for item in anomalies if item.category == category]
-            newest = examples[-1]
+            newest = max(examples, key=lambda item: item.timestamp)
             findings.append({
                 "kind": "anomaly",
                 "title": category_titles.get(category, category.replace("_", " ").title()),
@@ -192,13 +175,21 @@ class InvestigationEngine:
         process_peaks = self._process_peaks(processes)
         if process_peaks:
             lead = process_peaks[0]
-            if lead["peak_cpu_percent"] >= 40 or lead["peak_memory_percent"] >= 20:
-                findings.append({
-                    "kind": "process",
-                    "title": f"{lead['process_name']} had the strongest recorded process activity",
-                    "detail": f"Peak CPU {lead['peak_cpu_percent']:.1f}% · peak memory {lead['peak_memory_percent']:.1f}% across {lead['samples']} observations.",
-                    "strength": "process history",
-                })
+            system_cpu = stats.get("cpu_percent", {}).get("median")
+            system_context = (
+                f" System CPU median in the same window was {float(system_cpu):.1f}%."
+                if system_cpu is not None else " System CPU history was unavailable in this window."
+            )
+            thread_context = (
+                f" Peak observed thread count was {lead['peak_thread_count']}."
+                if lead.get("peak_thread_count") is not None else ""
+            )
+            findings.append({
+                "kind": "process",
+                "title": f"{lead['process_name']} had the strongest recorded process activity",
+                "detail": f"Peak CPU {lead['peak_cpu_percent']:.1f}% · peak memory {lead['peak_memory_percent']:.1f}% across {lead['samples']} observations.{thread_context}{system_context} Process activity overlapped with the capture, but resource use alone does not prove it caused the slowdown or indicate unsafe behavior.",
+                "strength": "process history",
+            })
 
         events = list(system_events.get("events", [])) if isinstance(system_events, dict) else []
         if events:
@@ -248,7 +239,7 @@ class InvestigationEngine:
 
         comparisons = self._compare_windows(stats, baseline_stats)
         for item in comparisons:
-            if abs(item["change_pct"]) >= 25 and abs(item["change"]) >= 5:
+            if item["change"] != 0:
                 direction = "higher" if item["change"] > 0 else "lower"
                 findings.append({
                     "kind": "comparison",
@@ -265,9 +256,7 @@ class InvestigationEngine:
                 "strength": "no clear signal",
             })
 
-        quality = "GOOD" if len(metrics) >= 5 else "LIMITED"
-        if len(metrics) >= 5 and not any(item.status == MetricStatus.OK for item in metrics):
-            quality = "LIMITED"
+        quality = "AVAILABLE" if any(item.status == MetricStatus.OK for item in metrics) else "LIMITED"
         ordered_timeline = self._timeline(metrics, anomalies, events, markers or [])
         summary = self._summary(symptom, findings, quality, window_seconds)
         hypotheses = self._hypotheses(stats, anomaly_counts, events, valid_network)
@@ -302,60 +291,71 @@ class InvestigationEngine:
         events: list[dict[str, Any]],
         network_samples: list[MetricSample],
     ) -> list[dict[str, str]]:
-        candidates: list[tuple[int, dict[str, str]]] = []
-        resource_flags = sum((
-            float(stats.get("cpu_percent", {}).get("p95", 0)) >= 80,
-            float(stats.get("memory_percent", {}).get("p95", 0)) >= 85,
-            float(stats.get("disk_percent", {}).get("max", 0)) >= 95,
-            any(anomaly_counts.get(key, 0) for key in ("CPU_PRESSURE", "MEMORY_PRESSURE", "DISK_PRESSURE")),
-        ))
-        if resource_flags:
-            candidates.append((resource_flags, {
-                "title": "Local resource pressure",
-                "strength": "Strong" if resource_flags >= 2 else "Some evidence",
-                "basis": "Repeated high CPU, memory, or drive readings" if resource_flags >= 2 else "One resource signal was elevated",
-            }))
-        thermal = (
-            float(stats.get("cpu_temperature_c", {}).get("p95", 0)) >= 90
-            or float(stats.get("gpu_temperature_c", {}).get("p95", 0)) >= 85
+        candidates: list[tuple[int, str, dict[str, str]]] = []
+        resource_count = sum(
+            anomaly_counts.get(key, 0)
+            for key in ("CPU_PRESSURE", "MEMORY_PRESSURE", "DISK_PRESSURE")
         )
-        if thermal:
-            candidates.append((3, {
-                "title": "Thermal pressure",
-                "strength": "Some evidence",
-                "basis": "A temperature reading was high; sensor interpretation varies by hardware",
+        if resource_count:
+            candidates.append((resource_count, "resource", {
+                "title": "Local resource deviations",
+                "strength": "Personal-baseline findings",
+                "basis": f"{resource_count} CPU, memory, or disk observation(s) exceeded this device's learned variation band.",
             }))
-        app_events = [item for item in events if str(item.get("Id", item.get("id", ""))) in {"1000", "1001", "1026", "7031"}]
+
+        thermal_count = anomaly_counts.get("THERMAL_LIMIT", 0)
+        if thermal_count:
+            candidates.append((thermal_count, "thermal", {
+                "title": "Hardware-reported thermal limit",
+                "strength": "Sensor-reported limit",
+                "basis": f"{thermal_count} sustained or critical thermal finding(s) were based on limits reported by the sensor.",
+            }))
+
+        app_events = [
+            item for item in events
+            if str(item.get("Id", item.get("id", ""))) in {"1000", "1001", "1026", "7031"}
+        ]
         if app_events:
-            candidates.append((4, {
+            candidates.append((len(app_events), "application", {
                 "title": "Application or service failure",
-                "strength": "Some evidence",
-                "basis": f"{len(app_events)} related crash, reporting, or service event(s) appeared in the window",
+                "strength": "Event-log evidence",
+                "basis": f"{len(app_events)} related crash, reporting, or service event(s) appeared in the capture window.",
             }))
+
         change_events = [
             item for item in events
             if str(item.get("Id", item.get("id", ""))) in {"19", "20", "21", "22", "1033", "1034", "11707", "11724"}
         ]
         if change_events:
-            candidates.append((2, {
-                "title": "A Windows update or software change appears in the timeline",
-                "strength": "Timeline clue",
-                "basis": f"{len(change_events)} update or installer event(s) were recorded; timing alone does not prove they caused the symptom",
+            candidates.append((len(change_events), "change", {
+                "title": "Software or update event in the timeline",
+                "strength": "Event-log timeline clue",
+                "basis": f"{len(change_events)} update or installer event(s) were recorded; timing alone does not establish causation.",
             }))
-        network_flags = sum((
-            any(anomaly_counts.get(key, 0) for key in ("NETWORK_LATENCY", "NETWORK_JITTER", "PACKET_LOSS", "DNS_LATENCY", "HTTP_LATENCY")),
-            any(sample.metric_name == "packet_loss_percent" and float(sample.value or 0) > 0 for sample in network_samples),
-            any(sample.metric_name == "ping_median_ms" and float(sample.value or 0) >= 150 for sample in network_samples),
-            any(sample.metric_name == "dns_latency_ms" and float(sample.value or 0) >= 1000 for sample in network_samples),
-        ))
-        if network_flags:
-            candidates.append((network_flags, {
-                "title": "Network instability",
-                "strength": "Strong" if network_flags >= 2 else "Some evidence",
-                "basis": "Latency, packet loss, or resolver signals were elevated",
+
+        network_count = sum(
+            anomaly_counts.get(key, 0)
+            for key in ("NETWORK_LATENCY", "NETWORK_JITTER", "PACKET_LOSS", "DNS_LATENCY", "HTTP_LATENCY")
+        )
+        observed_packet_loss = any(
+            sample.metric_name == "packet_loss_percent"
+            and sample.status == MetricStatus.OK
+            and isinstance(sample.value, (int, float))
+            and float(sample.value) > 0
+            for sample in network_samples
+        )
+        if network_count or observed_packet_loss:
+            candidates.append((network_count + int(observed_packet_loss), "network", {
+                "title": "Network measurements need review",
+                "strength": "Measured network evidence",
+                "basis": (
+                    f"{network_count} baseline-relative network finding(s) and "
+                    f"{'observed packet loss' if observed_packet_loss else 'no nonzero packet loss observation'} were recorded."
+                ),
             }))
-        candidates.sort(key=lambda pair: pair[0], reverse=True)
-        return [item for _, item in candidates[:4]]
+
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        return [item for _, _, item in candidates[:4]]
 
     @staticmethod
     def _process_peaks(processes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -365,10 +365,17 @@ class InvestigationEngine:
             item = grouped.setdefault(name, {
                 "process_name": name, "peak_cpu_percent": 0.0, "peak_memory_percent": 0.0,
                 "peak_read_bytes_per_sec": None, "peak_write_bytes_per_sec": None,
-                "peak_network_connections": None, "samples": 0,
+                "peak_network_connection_count": None, "peak_thread_count": None,
+                "create_time": None, "samples": 0,
             })
             item["peak_cpu_percent"] = max(item["peak_cpu_percent"], float(row.get("cpu_percent") or 0))
             item["peak_memory_percent"] = max(item["peak_memory_percent"], float(row.get("memory_percent") or 0))
+            threads = row.get("thread_count")
+            if threads is not None:
+                item["peak_thread_count"] = max(item["peak_thread_count"] or 0, int(threads))
+            create_time = row.get("create_time")
+            if create_time is not None:
+                item["create_time"] = min(item["create_time"] or float(create_time), float(create_time))
             for key in ("read_bytes_per_sec", "write_bytes_per_sec", "network_connection_count"):
                 target = "peak_" + key
                 value = row.get(key)

@@ -19,6 +19,7 @@ class GameSessionSnapshot:
     available: bool
     processes: tuple[GameProcessMetrics, ...] = ()
     reason: str | None = None
+    complete: bool = True
 
 class GameSessionCollector:
     """Monitor only process names explicitly supplied by the user."""
@@ -31,6 +32,7 @@ class GameSessionCollector:
             return GameSessionSnapshot(False, reason="Add game process names to start a focused session.")
         now = time.monotonic()
         results, seen = [], set()
+        incomplete = False
         try:
             for process in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "num_threads"]):
                 try:
@@ -54,11 +56,20 @@ class GameSessionCollector:
                         float(info.get("cpu_percent") or 0), float(info.get("memory_percent") or 0),
                         info.get("num_threads"), read_rate, write_rate))
                     seen.add(info["pid"])
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                except psutil.AccessDenied:
+                    incomplete = True
+                    continue
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
                     continue
             self._previous_io = {pid: value for pid, value in self._previous_io.items() if pid in seen}
             if not results:
+                if incomplete:
+                    return GameSessionSnapshot(False, reason="Game process sampling was incomplete because one or more processes denied access.", complete=False)
                 return GameSessionSnapshot(False, reason="None of the configured game processes are running.")
-            return GameSessionSnapshot(True, tuple(sorted(results, key=lambda item: item.cpu_percent, reverse=True)))
+            reason = "Some configured game processes denied access; session detection may be incomplete." if incomplete else None
+            return GameSessionSnapshot(
+                True, tuple(sorted(results, key=lambda item: item.cpu_percent, reverse=True)),
+                reason=reason, complete=not incomplete,
+            )
         except (OSError, psutil.Error) as exc:
-            return GameSessionSnapshot(False, reason=f"Game process sampling failed: {exc}")
+            return GameSessionSnapshot(False, reason=f"Game process sampling failed: {exc}", complete=False)
