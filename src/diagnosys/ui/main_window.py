@@ -857,7 +857,7 @@ class MainWindow(QMainWindow):
         self.baseline_enabled.setChecked(self.settings.baseline_enabled)
         form.addRow("Adaptive baseline", self.baseline_enabled)
 
-         self.alerts_enabled = QCheckBox("Show desktop alerts for new resource or network issues")
+        self.alerts_enabled = QCheckBox("Show desktop alerts for new resource or network issues")
         self.alerts_enabled.setChecked(self.settings.alerts_enabled)
         form.addRow("Notifications", self.alerts_enabled)
 
@@ -865,7 +865,7 @@ class MainWindow(QMainWindow):
         self.keep_in_tray.setChecked(self.settings.keep_in_tray)
         form.addRow("Background capture", self.keep_in_tray)
 
-         card.content.addLayout(form)
+        card.content.addLayout(form)
         save = QPushButton("Save settings", objectName="PrimaryButton")
         save.clicked.connect(self.save_settings)
         card.content.addWidget(save, 0, Qt.AlignmentFlag.AlignLeft)
@@ -897,7 +897,7 @@ class MainWindow(QMainWindow):
                 alerts_enabled=self.alerts_enabled.isChecked(),
                 keep_in_tray=self.keep_in_tray.isChecked(),
                 baseline_enabled=self.baseline_enabled.isChecked(),
-             )
+            )
             updated.save()
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "Settings were not saved", str(exc))
