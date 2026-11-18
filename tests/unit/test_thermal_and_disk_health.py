@@ -8,7 +8,8 @@ from diagnosys.collectors.system.disk_health import DiskHealthCollector, DiskDev
 
 def test_thermal_collector_reports_unavailable_when_no_sensor_api():
     with patch("diagnosys.collectors.system.thermal.psutil.sensors_temperatures", None, create=True):
-        result = ThermalCollector().collect()
+        with patch("diagnosys.collectors.system.thermal.psutil.sensors_fans", return_value={}, create=True):
+            result = ThermalCollector().collect()
     assert not result.available
     assert result.reason
 
@@ -175,3 +176,17 @@ def test_thermal_collector_reports_fans_when_temperature_api_is_empty():
     assert result.available
     assert not result.temperatures
     assert result.fans[0].speed_rpm == 1200.0
+
+
+def test_thermal_collector_keeps_fan_data_when_temperature_api_is_missing():
+    fan = SimpleNamespace(label="Chassis Fan", current=900)
+    with patch("diagnosys.collectors.system.thermal.psutil.sensors_temperatures", None, create=True):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={"board": [fan]},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+    assert result.available
+    assert result.fans[0].speed_rpm == 900.0
+    assert "Temperature sensors are not exposed" in result.reason
