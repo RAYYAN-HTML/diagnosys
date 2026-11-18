@@ -19,19 +19,23 @@ class PingCollector(Collector):
             raise ValueError("timeout_sec must be a finite number greater than zero")
         
     def _parse_time(self, output: str) -> List[float]:
-        # Matches: time=14ms, time=14.2 ms, time<1ms (which we'll treat as 0.5)
+        # Parse exact values and less-than values separately. A response such as
+        # Windows "time<1ms" must contribute one estimate, not two samples.
         times = []
-        for match in re.finditer(r"time[=<]([0-9.]+) ?ms", output, re.IGNORECASE):
-            val = match.group(1)
+        for match in re.finditer(r"time=([0-9]+(?:\\.[0-9]+)?)\\s*ms", output, re.IGNORECASE):
             try:
-                times.append(float(val))
+                value = float(match.group(1))
             except ValueError:
-                pass
-                
-        # Handle Windows 'time<1ms'
-        for match in re.finditer(r"time<1ms", output, re.IGNORECASE):
-            times.append(0.5)
-            
+                continue
+            if math.isfinite(value) and value >= 0:
+                times.append(value)
+        for match in re.finditer(r"time<([0-9]+(?:\\.[0-9]+)?)\\s*ms", output, re.IGNORECASE):
+            try:
+                upper_bound = float(match.group(1))
+            except ValueError:
+                continue
+            if math.isfinite(upper_bound) and upper_bound > 0:
+                times.append(upper_bound / 2.0)
         return times
 
     def collect(self) -> PingMetrics:
