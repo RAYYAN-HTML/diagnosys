@@ -31,15 +31,21 @@ class ThermalSnapshot:
     reason: str | None = None
 
 
-def _finite_nonnegative(value: object) -> float | None:
-    """Return a usable physical reading without turning invalid data into zero."""
+def _finite_number(value: object) -> float | None:
+    """Return a finite sensor value without rejecting valid sub-zero temperatures."""
     if value is None:
         return None
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):
         return None
-    return parsed if math.isfinite(parsed) and parsed >= 0 else None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _finite_nonnegative(value: object) -> float | None:
+    """Return a non-negative physical value such as fan RPM."""
+    parsed = _finite_number(value)
+    return parsed if parsed is not None and parsed >= 0 else None
 
 
 class ThermalCollector:
@@ -70,9 +76,9 @@ class ThermalCollector:
                 continue
             for reading in iterator:
                 try:
-                    current = _finite_nonnegative(getattr(reading, "current", None))
-                    high = _finite_nonnegative(getattr(reading, "high", None))
-                    critical = _finite_nonnegative(getattr(reading, "critical", None))
+                    current = _finite_number(getattr(reading, "current", None))
+                    high = _finite_number(getattr(reading, "high", None))
+                    critical = _finite_number(getattr(reading, "critical", None))
                     label = getattr(reading, "label", None) or sensor
                 except Exception:
                     invalid_readings += 1
