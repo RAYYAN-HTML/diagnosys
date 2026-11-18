@@ -32,6 +32,7 @@ class Settings:
     data_dir: Path
     refresh_seconds: int = 2
     process_history_seconds: int = 10
+    game_process_names: str = ""
     retention_days: int = 7
     network_timeout_seconds: float = 2.0
     ping_target: str = "1.1.1.1"
@@ -46,6 +47,8 @@ class Settings:
             raise ValueError("refresh_seconds must be at least 1")
         if not 1 <= self.process_history_seconds <= 3600:
             raise ValueError("process_history_seconds must be between 1 and 3600")
+        if not isinstance(self.game_process_names, str):
+            raise ValueError("game_process_names must be a comma-separated string")
         if self.retention_days < 1:
             raise ValueError("retention_days must be at least 1")
         if not math.isfinite(self.network_timeout_seconds) or self.network_timeout_seconds <= 0:
@@ -101,6 +104,7 @@ class Settings:
         return replace(
             defaults, data_dir=data_dir, refresh_seconds=refresh,
             process_history_seconds=process_history,
+            game_process_names=os.getenv("DIAGNOSYS_GAME_PROCESSES", defaults.game_process_names),
             retention_days=retention, network_timeout_seconds=timeout,
         )
 

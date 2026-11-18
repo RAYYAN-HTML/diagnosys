@@ -1,262 +1,103 @@
 # Diagnosys Architecture
 
-## 1. Product architecture
+## Product principles
+
+- **Local-first:** measurements and history remain on the device.
+- **Evidence-first:** every diagnostic lead is traceable to collected observations.
+- **Deterministic:** diagnosis uses explicit rules and transparent evidence ordering. No generated diagnosis layer is used.
+- **Graceful degradation:** unsupported sensors and permission failures are represented as unavailable states, never as fabricated values.
+- **Read-only by default:** collection and health inspection must not modify the operating system or storage devices.
+
+## Runtime flow
 
 ```text
-                         ┌──────────────────┐
-                         │       GUI        │
-                         └────────┬─────────┘
-                                  │
-                                  ▼
-                      ┌──────────────────────┐
-                      │ UI Task Coordinator  │
-                      └──────────┬───────────┘
-                                 │
-                 ┌───────────────┼───────────────┐
-                 ▼               ▼               ▼
-          ┌────────────┐  ┌────────────┐  ┌────────────┐
-          │  System    │  │  Network   │  │  Process   │
-          │ Collectors │  │ Collectors │  │ Collectors │
-          └──────┬─────┘  └──────┬─────┘  └──────┬─────┘
-                 └───────────────┼────────────────┘
-                                 ▼
-                        ┌────────────────┐
-                        │ Domain Models  │
-                        └───────┬────────┘
-                                ▼
-                         ┌────────────┐
-                         │  SQLite    │
-                         └─────┬──────┘
-                               ▼
-                    ┌────────────────────┐
-                    │ Anomaly Detection  │
-                    └─────────┬──────────┘
-                              ▼
-                     ┌─────────────────┐
-                     │  Correlation    │
-                     └────────┬────────┘
-                              ▼
-                     ┌─────────────────┐
-                     │  Diagnostics    │
-                     └────────┬────────┘
-                              ▼
-                    ┌──────────────────┐
-                    │ Reports / Output │
-                    └────────┬─────────┘
-                             │
-                             ▼
-                     ┌─────────────────┐
-                     │ Optional AI     │
-                     │ Explanation     │
-                     └─────────────────┘
+Desktop shell and page modules
+   |
+Background task coordinator
+   |
+Collectors -------------------- Capability discovery
+   |
+Typed measurements and snapshots
+   |
+SQLite repositories
+   |
+Personal baselines and hardware-reported limit rules
+   |
+Evidence correlation and investigation
+   |
+Reports and UI presentation
 ```
 
-## 2. Architectural principles
-
-### Local-first
-
-Measurements and history live locally unless the user explicitly enables an external integration.
-
-### Evidence-first
-
-The diagnostic engine operates on measurements. Explanations are downstream.
-
-### Deterministic core
-
-The core must work without an LLM.
-
-### Graceful degradation
-
-Unsupported hardware or unavailable network methods become explicit unavailable states.
-
-### Separation of concerns
-
-Collectors collect. Storage stores. Diagnostics diagnose. The desktop GUI
-displays results and coordinates user actions.
-
-## 3. Package structure
+## Package structure
 
 ```text
 src/diagnosys/
 ├── gui.py
 ├── __main__.py
 ├── ui/
-│   ├── main_window.py
-│   ├── components.py
-│   └── theme/
-├── core/
-│   └── capabilities.py
-├── models/
-│   ├── metrics.py
-│   ├── diagnostics.py
-│   ├── network.py
-│   ├── incidents.py
-│   └── reports.py
+│   ├── main_window.py       # Application shell and cross-page orchestration
+│   ├── components.py        # Shared visual components
+│   ├── pages/               # Overview, network, diagnostics, history, settings,
+│   │                       # performance, thermal, disk health, gaming, and processes
+│   ├── controllers/         # Investigation, network, and report workflows
+│   ├── tasks.py             # Background Qt task worker and result routing
+│   ├── formatters.py        # Pure report and metric formatting helpers
+│   └── theme/               # Shared tokens and Qt stylesheet
+├── core/                    # Runtime capability discovery
+├── models/                  # Measurements, diagnoses, incidents, reports
 ├── collectors/
-│   ├── base.py
-│   ├── system/
-│   └── network/
-├── diagnostics/
-│   ├── rules.py
-│   └── engine.py
-├── correlation/
-│   └── engine.py
-├── storage/
-│   ├── database.py
-│   ├── repositories.py
-│   └── incidents.py
-├── reports/
-│   └── generator.py
-├── ai/
-│   ├── base.py
-│   └── providers/
-├── config/
-│   ├── settings.py
-│   └── logging.py
+│   ├── system/              # CPU, memory, disk, GPU, thermal, SMART, processes, gaming
+│   └── network/             # Network probes and interface counters
+├── diagnostics/             # Deterministic rules and investigation logic
+├── correlation/             # Time-window evidence correlation
+├── storage/                 # SQLite schema, migrations, repositories
+├── reports/                 # Text, Markdown, JSON and HTML report output
+└── config/                  # Runtime settings and logging
 ```
 
-## 4. Collector contract
+## Component responsibilities
 
-A collector should have a predictable contract:
+### Collectors
 
-```text
-collect()
-  ↓
-Measurement(s)
-  OR
-measurement with an unavailable status and reason
-```
+Collectors read operating-system or hardware telemetry and return typed values. They do not write SQL, render UI, or make diagnostic conclusions. A missing sensor, unsupported device, permission failure, or timeout must be represented explicitly.
 
-It should not:
-- print directly to the terminal
-- write SQL directly
-- perform diagnosis
-- call an LLM
+### Background task coordinator
 
-## 5. Storage contract
+Potentially slow collection and probing run outside the Qt UI thread. Disk discovery and SMART queries are rate-limited independently from live sampling. Each collector should fail without preventing unrelated measurements from completing.
 
-Repositories hide SQLite details.
+### Storage
 
-Example:
+Repositories own SQLite access. Schema changes are versioned and tested against an existing database. Hardware and process observations retain timestamps and available device/process identity. Missing values remain NULL rather than being replaced with zero.
 
-```text
-MetricRepository.save(sample)
-MetricRepository.query(window)
-AnomalyRepository.save(anomaly)
-```
+### Diagnostics
 
-The diagnostic engine should not depend directly on SQL statements.
+The diagnostic engine compares observations with personal baselines where sufficient history exists. Thermal limit findings use high and critical values reported by the sensor itself. Results are ordered by transparent evidence criteria, not probability, confidence, or arbitrary scores. Time overlap is correlation, not proof of causation or throttling.
 
-## 6. Domain flow
+### UI
 
-```text
-measurement
-    ↓
-normalization
-    ↓
-persistence
-    ↓
-window selection
-    ↓
-anomaly detection
-    ↓
-correlation
-    ↓
-hypothesis generation
-    ↓
-evidence scoring
-    ↓
-diagnosis result
-    ↓
-presentation
-```
+Page construction lives in `ui/pages/`; shared widgets and theme tokens are reused across pages. The main window remains the application coordinator and is still being reduced. Pages present measurements, freshness, capability availability, evidence, limitations, and next checks.
 
-## 7. Correlation model
+## Diagnostic result contract
 
-Correlation operates on time windows.
+A finding should include:
+- category or observed pattern
+- supporting measurements and timestamps
+- relevant process or device context when available
+- contradictory or missing evidence
+- limitations
+- recommended next checks
 
-For each hypothesis, retain:
+Do not present an overall health score, diagnostic confidence percentage, or fabricated sensor reading.
 
-```text
-Hypothesis
-├── category
-├── score
-├── confidence
-├── evidence[]
-├── contradictory_evidence[]
-├── time_window
-└── limitations[]
-```
+## Privacy and safety
 
-## 8. AI boundary
+- No hidden telemetry or automatic upload.
+- Diagnostic findings are generated locally through deterministic rules and remain traceable to measurements.
+- Do not collect passwords, tokens, cookies, keystrokes, private messages, browser history, or arbitrary personal files.
+- SMART queries must be read-only.
+- Game process names are explicitly configured by the user.
+- Any future operation that changes system state requires explicit user confirmation and documented rollback behavior.
 
-```text
-                 Deterministic Core
-                       │
-                       │ structured evidence
-                       ▼
-                  AI Explainer
-                       │
-                       ▼
-                natural-language
-                   explanation
-```
+## Current implementation boundaries
 
-The AI boundary must not flow backward into unrestricted system control.
-
-## 9. Failure isolation
-
-Each collector runs independently.
-
-```text
-CPU collector ── OK
-RAM collector ── OK
-GPU collector ── unavailable
-Ping collector ── timeout
-DNS collector ── OK
-```
-
-The monitoring cycle still completes.
-
-## 10. Future architecture
-
-Potential later modules:
-- richer time-aware baselines
-- TUI dashboard
-- local web dashboard
-- plugin system
-- application/game diagnostics
-- local LLM provider
-- notification service
-
-These must preserve the deterministic core.
-
-## 11. Investigation workflow
-
-The primary user path is symptom-first:
-
-```text
-symptom selection
-    ↓
-persistent capture marker
-    ↓
-pre-capture + live local history
-    ↓
-system, process, network, and Windows event evidence
-    ↓
-ranked leads + focused checks
-    ↓
-after-change comparison
-    ↓
-user-confirmed outcome
-```
-
-An investigation record stores its symptom, notes, capture status, evidence,
-after-change measurements, and user-reported outcome. Measurements are queried
-by explicit time range; they are not inferred from the anomaly list alone.
-The evidence question helper reads only the selected local incident. Export
-redaction is reviewed before a support bundle is written.
-
-The current tray option keeps the desktop process alive while its window is
-hidden. It is not a Windows service and does not collect while the process is
-stopped. A service mode would need a separate lifecycle and installer design.
+Overview, performance, thermal, disk-health, gaming, and process pages are connected to collection and SQLite history. Sensor coverage remains hardware- and OS-dependent. GPU vendor coverage is currently limited, and FPS/frame-time telemetry is not available. `ui/main_window.py` now acts primarily as the application shell and telemetry coordinator. Investigation, network, and report workflows are delegated to controllers; the remaining live-collection and history coordination will continue to be extracted where that improves ownership and testability.

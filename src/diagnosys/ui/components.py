@@ -117,7 +117,7 @@ class CircularGauge(QWidget):
         painter.drawArc(arc_rect, 225 * 16, -270 * 16)
 
         if self.value is not None:
-            color = TOKENS.accent if self.value < 78 else TOKENS.warning if self.value < 92 else TOKENS.error
+            color = TOKENS.accent
             pen.setColor(QColor(color))
             painter.setPen(pen)
             painter.drawArc(arc_rect, 225 * 16, int(-270 * 16 * self.value / 100))
@@ -167,8 +167,8 @@ class ProgressMetric(QWidget):
         self.detail.setText(detail)
         self.bar.setEnabled(percent is not None)
         self.bar.setValue(0 if percent is None else max(0, min(100, round(percent))))
-        tone = "critical" if percent is not None and percent >= 92 else "warning" if percent is not None and percent >= 78 else "healthy"
-        self.bar.setProperty("tone", tone)
+        # Activity bars communicate magnitude only; they do not apply generic health cutoffs.
+        self.bar.setProperty("tone", "neutral")
         self.bar.style().unpolish(self.bar)
         self.bar.style().polish(self.bar)
 

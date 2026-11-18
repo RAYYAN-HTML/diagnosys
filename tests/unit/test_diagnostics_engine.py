@@ -35,3 +35,16 @@ def test_rule_uses_learned_variation_band():
     assert len(anomalies) == 1
     assert anomalies[0].expected_value > 40.0
     assert "personal" in anomalies[0].explanation
+
+
+def test_hardware_reported_thermal_limit_is_included_in_diagnosis():
+    now = datetime.now(timezone.utc)
+    anomaly = Anomaly(
+        now, "THERMAL_LIMIT", "WARNING", "thermal_temperature_c", 94.0, 90.0,
+        "thermal_sensor_limit_sustained_coretemp", "CPU package remained above its reported high limit.",
+    )
+    result = DiagnosticEngine().diagnose([anomaly], 60)
+    assert result.status == "INVESTIGATE"
+    assert result.primary_hypothesis.category == "OBSERVED_THERMAL_LIMIT"
+    assert result.primary_hypothesis.evidence[0].observed_value == 94.0
+    assert any("hardware" in item.lower() for item in result.primary_hypothesis.recommended_checks)

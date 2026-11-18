@@ -14,7 +14,11 @@ class DiagnosticEngine:
 
     def diagnose(self, anomalies: List[Anomaly], window_seconds: int = 60) -> DiagnosisResult:
         # Ignore legacy anomaly rows created by the former global-cutoff engine.
-        anomalies = [item for item in anomalies if item.rule_id.endswith("_personal_baseline_deviation")]
+        anomalies = [
+            item for item in anomalies
+            if item.rule_id.endswith("_personal_baseline_deviation")
+            or item.rule_id.startswith("thermal_sensor_limit_")
+        ]
         if not anomalies:
             return DiagnosisResult(status="NO_ANOMALY", primary_hypothesis=None,
                                    time_window=window_seconds, data_quality="BASELINE_RELATIVE")
@@ -65,6 +69,12 @@ class DiagnosticEngine:
                 checks.append("Check the affected volume's free space and storage health.")
             checks.append("Compare the same workload against a later capture to see whether the deviation persists.")
             return checks
+        if category == "OBSERVED_THERMAL_LIMIT":
+            return [
+                "Check that the device vents and cooling intakes are unobstructed.",
+                "Compare the same workload with thermal readings and utilization over a longer capture.",
+                "Review the hardware or system-vendor guidance for the sensor-reported limit; time overlap alone does not prove throttling.",
+            ]
         if category == "NETWORK_INSTABILITY":
             return [
                 "Repeat the measurement against the local gateway and a second independent destination.",

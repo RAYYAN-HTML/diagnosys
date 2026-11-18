@@ -10,7 +10,7 @@ def test_process_collector(mock_process_iter):
     mock_p1.info = {'pid': 1, 'name': 'systemd', 'username': 'root', 'cpu_percent': 0.1, 'memory_percent': 0.5}
     
     mock_p2 = MagicMock()
-    mock_p2.info = {'pid': 2, 'name': 'chrome', 'username': 'user', 'cpu_percent': 25.0, 'memory_percent': 15.0}
+    mock_p2.info = {'pid': 2, 'name': 'chrome', 'username': 'user', 'cpu_percent': 25.0, 'memory_percent': 15.0, 'num_threads': 18, 'create_time': 1700000000.0}
     
     mock_p3 = MagicMock()
     mock_p3.info = {'pid': 3, 'name': 'python', 'username': 'user', 'cpu_percent': 15.0, 'memory_percent': 25.0}
@@ -34,8 +34,30 @@ def test_process_collector(mock_process_iter):
     
     assert len(snapshot.top_cpu) == 2
     assert snapshot.top_cpu[0].name == 'chrome'
+    assert snapshot.top_cpu[0].thread_count == 18
+    assert snapshot.top_cpu[0].create_time == 1700000000.0
     assert snapshot.top_cpu[1].name == 'python'
     
     assert len(snapshot.top_memory) == 2
     assert snapshot.top_memory[0].name == 'python'
     assert snapshot.top_memory[1].name == 'chrome'
+
+
+
+@patch("psutil.process_iter")
+def test_process_collector_preserves_unavailable_lifecycle_fields(mock_process_iter):
+    process = MagicMock()
+    process.info = {
+        "pid": 88,
+        "name": "restricted-process",
+        "username": None,
+        "cpu_percent": 0.0,
+        "memory_percent": 0.0,
+    }
+    mock_process_iter.return_value = [process]
+
+    snapshot = ProcessCollector(top_n=1).collect()
+
+    assert snapshot.available
+    assert snapshot.top_cpu[0].thread_count is None
+    assert snapshot.top_cpu[0].create_time is None

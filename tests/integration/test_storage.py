@@ -72,6 +72,7 @@ def test_process_repository_keeps_resource_and_connection_history(db_conn):
         pid=123, name="example-app", username="private-user", cpu_percent=42.0,
         memory_percent=12.0, read_bytes_per_sec=2048.0,
         write_bytes_per_sec=1024.0, network_connection_count=3,
+        thread_count=17, create_time=1700000000.0,
     )
     repo.save_snapshot(ProcessSnapshot(datetime.now(timezone.utc), 1, [process], [process]))
 
@@ -80,6 +81,8 @@ def test_process_repository_keeps_resource_and_connection_history(db_conn):
     assert len(rows) == 1
     assert rows[0]["read_bytes_per_sec"] == 2048.0
     assert rows[0]["network_connection_count"] == 3
+    assert rows[0]["thread_count"] == 17
+    assert rows[0]["create_time"] == 1700000000.0
     assert peaks[0]["process_name"] == "example-app"
     assert peaks[0]["peak_write_bytes_per_sec"] == 1024.0
 
@@ -114,6 +117,15 @@ def test_legacy_schema_adds_incident_evidence_and_process_counters():
             id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, pid INTEGER NOT NULL,
             process_name TEXT NOT NULL, cpu_percent REAL NOT NULL, memory_percent REAL NOT NULL
         );
+        CREATE TABLE metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL,
+            metric_name TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL,
+            source TEXT NOT NULL, entity_id TEXT, status TEXT NOT NULL, reason TEXT
+        );
+        INSERT INTO metrics (timestamp, metric_name, value, unit, source, status)
+        VALUES ('2026-11-18T20:00:00+00:00', 'cpu_percent', 37.5, '%', 'system', 'ok');
+        INSERT INTO metrics (timestamp, metric_name, value, unit, source, status)
+        VALUES ('2026-11-18T20:00:01+00:00', 'gpu_percent', 0.0, '%', 'system', 'unavailable');
         PRAGMA user_version = 1;
     """)
 
@@ -123,5 +135,45 @@ def test_legacy_schema_adds_incident_evidence_and_process_counters():
     process_columns = {row[1] for row in conn.execute("PRAGMA table_info(process_samples)")}
     assert "evidence_json" in incident_columns
     assert {"read_bytes_per_sec", "write_bytes_per_sec", "network_connection_count"} <= process_columns
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
+    metric_columns = {row[1]: row for row in conn.execute("PRAGMA table_info(metrics)")}
+    assert metric_columns["value"][3] == 0, "metric values must allow SQL NULL for unavailable readings"
+    preserved = conn.execute("SELECT value FROM metrics WHERE metric_name = 'cpu_percent'").fetchone()
+    assert preserved["value"] == 37.5
+    legacy_unavailable = conn.execute("SELECT value FROM metrics WHERE metric_name = 'gpu_percent'").fetchone()
+    assert legacy_unavailable["value"] is None
+    assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_metrics_timestamp'").fetchone()[0] == 1
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert {"thermal_samples", "disk_health_samples", "game_sessions", "game_process_samples"} <= tables
+    thermal_columns = {row[1] for row in conn.execute("PRAGMA table_info(thermal_samples)")}
+    assert "fan_speed_rpm" in thermal_columns
+    process_columns = {row[1] for row in conn.execute("PRAGMA table_info(process_samples)")}
+    assert {"thread_count", "create_time"} <= process_columns
     conn.close()
+
+
+
+def test_unavailable_metric_is_stored_as_null_not_zero(db_conn):
+    repository = MetricRepository(db_conn)
+    sample = MetricSample(
+        timestamp=datetime.now(timezone.utc),
+        metric_name="gpu_percent",
+        value=None,
+        unit="%",
+        source="system",
+        status=MetricStatus.UNAVAILABLE,
+        reason="No supported GPU telemetry source.",
+    )
+
+    repository.save(sample)
+    stored = db_conn.execute(
+        "SELECT value, status, reason FROM metrics WHERE metric_name = ?",
+        ("gpu_percent",),
+    ).fetchone()
+    loaded = repository.query(window_seconds=3600, metric_name="gpu_percent")
+
+    assert stored["value"] is None
+    assert stored["status"] == "unavailable"
+    assert "No supported GPU telemetry" in stored["reason"]
+    assert len(loaded) == 1
+    assert loaded[0].value is None

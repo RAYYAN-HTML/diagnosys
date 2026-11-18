@@ -17,6 +17,7 @@ def test_settings_are_saved_and_loaded_from_local_app_data(monkeypatch):
             dns_server="1.1.1.1",
             http_target="https://example.net/health",
             alerts_enabled=False,
+            game_process_names="game.exe, another-game.exe",
         )
         settings.save()
         monkeypatch.setenv("DIAGNOSYS_DATA_DIR", str(data_dir))
@@ -29,6 +30,7 @@ def test_settings_are_saved_and_loaded_from_local_app_data(monkeypatch):
         assert loaded.ping_target == "router.local"
         assert loaded.dns_server == "1.1.1.1"
         assert loaded.alerts_enabled is False
+        assert loaded.game_process_names == "game.exe, another-game.exe"
 
 
 def test_settings_reject_invalid_network_targets():

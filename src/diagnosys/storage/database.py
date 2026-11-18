@@ -144,6 +144,127 @@ def init_db(conn: sqlite3.Connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status_started ON incidents(status, started_at)")
         cursor.execute("PRAGMA user_version = 4")
     
+    if schema_version < 5:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS thermal_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                sensor TEXT NOT NULL,
+                label TEXT NOT NULL,
+                temperature_c REAL,
+                high_c REAL,
+                critical_c REAL,
+                reading_kind TEXT NOT NULL DEFAULT 'temperature'
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS disk_health_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                device TEXT NOT NULL,
+                protocol TEXT,
+                state TEXT NOT NULL,
+                health_status TEXT NOT NULL,
+                temperature_c REAL,
+                power_on_hours INTEGER,
+                percentage_used REAL,
+                media_errors INTEGER,
+                critical_warning INTEGER,
+                available_spare_percent REAL,
+                spare_threshold_percent REAL,
+                reallocated_sectors INTEGER,
+                reason TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_thermal_timestamp ON thermal_samples(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_thermal_sensor_timestamp ON thermal_samples(sensor, timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_disk_health_timestamp ON disk_health_samples(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_disk_health_device_timestamp ON disk_health_samples(device, timestamp)")
+        cursor.execute("PRAGMA user_version = 5")
+        schema_version = 5
+
+    if schema_version < 6:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                process_name TEXT NOT NULL COLLATE NOCASE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                last_seen_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_process_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+                timestamp TEXT NOT NULL,
+                pid INTEGER NOT NULL,
+                process_name TEXT NOT NULL,
+                cpu_percent REAL NOT NULL,
+                memory_percent REAL NOT NULL,
+                thread_count INTEGER,
+                read_bytes_per_sec REAL,
+                write_bytes_per_sec REAL,
+                system_cpu_percent REAL,
+                gpu_utilization_percent REAL,
+                gpu_temperature_c REAL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_game_sessions_started ON game_sessions(started_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_game_sessions_active ON game_sessions(process_name, ended_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_game_samples_session_time ON game_process_samples(session_id, timestamp)")
+        cursor.execute("PRAGMA user_version = 6")
+        schema_version = 6
+
+    if schema_version < 7:
+        process_columns = {row[1] for row in cursor.execute("PRAGMA table_info(process_samples)").fetchall()}
+        for name, sql_type in (("thread_count", "INTEGER"), ("create_time", "REAL")):
+            if name not in process_columns:
+                cursor.execute(f"ALTER TABLE process_samples ADD COLUMN {name} {sql_type}")
+        cursor.execute("PRAGMA user_version = 7")
+        schema_version = 7
+
+    if schema_version < 8:
+        thermal_columns = {row[1] for row in cursor.execute("PRAGMA table_info(thermal_samples)").fetchall()}
+        if "fan_speed_rpm" not in thermal_columns:
+            cursor.execute("ALTER TABLE thermal_samples ADD COLUMN fan_speed_rpm REAL")
+        cursor.execute("""
+            UPDATE thermal_samples
+            SET fan_speed_rpm = temperature_c, temperature_c = NULL
+            WHERE reading_kind = 'fan_rpm' AND fan_speed_rpm IS NULL
+        """)
+        cursor.execute("PRAGMA user_version = 8")
+        schema_version = 8
+
+    if schema_version < 9:
+        metric_columns = {row[1]: row for row in cursor.execute("PRAGMA table_info(metrics)").fetchall()}
+        if metric_columns.get("value") and metric_columns["value"][3]:
+            cursor.execute("""
+                CREATE TABLE metrics_nullable (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    metric_name TEXT NOT NULL,
+                    value REAL,
+                    unit TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    entity_id TEXT,
+                    status TEXT NOT NULL,
+                    reason TEXT
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO metrics_nullable
+                (id, timestamp, metric_name, value, unit, source, entity_id, status, reason)
+                SELECT id, timestamp, metric_name, value, unit, source, entity_id, status, reason
+                FROM metrics
+            """)
+            cursor.execute("DROP TABLE metrics")
+            cursor.execute("ALTER TABLE metrics_nullable RENAME TO metrics")
+            cursor.execute("UPDATE metrics SET value = NULL WHERE status IN ('unavailable', 'error')")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp)")
+        cursor.execute("PRAGMA user_version = 9")
+        schema_version = 9
+
     conn.commit()
 
 def prune_db(conn: sqlite3.Connection, retention_days: int = 7):
@@ -161,5 +282,9 @@ def prune_db(conn: sqlite3.Connection, retention_days: int = 7):
     """, (cutoff,))
 
     cursor.execute("DELETE FROM process_samples WHERE timestamp <= ?", (cutoff,))
-    
+    cursor.execute("DELETE FROM thermal_samples WHERE timestamp <= ?", (cutoff,))
+    cursor.execute("DELETE FROM disk_health_samples WHERE timestamp <= ?", (cutoff,))
+    cursor.execute("DELETE FROM game_process_samples WHERE timestamp <= ?", (cutoff,))
+    cursor.execute("DELETE FROM game_sessions WHERE last_seen_at <= ?", (cutoff,))
+
     conn.commit()
