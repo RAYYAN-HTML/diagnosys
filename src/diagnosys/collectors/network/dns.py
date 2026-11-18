@@ -1,6 +1,6 @@
 import socket
 import ipaddress
-import random
+import secrets
 import struct
 import time
 import math
