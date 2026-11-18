@@ -61,7 +61,7 @@ class ThermalCollector:
         if not isinstance(raw_temperatures, dict):
             return ThermalSnapshot(False, reason="The operating system returned malformed temperature sensor data.")
 
-        temperatures: list[ThermalReading] =
+        temperatures: list[ThermalReading] = []
         invalid_readings = 0
         for sensor, readings in raw_temperatures.items():
             try:
