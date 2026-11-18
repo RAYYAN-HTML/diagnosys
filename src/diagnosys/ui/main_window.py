@@ -520,12 +520,10 @@ class MainWindow(QMainWindow):
         self.insight_body = self._muted_label("Recommendations are based on measurements collected by Diagnosys.")
         self.insight_evidence = self._muted_label("")
         insight_actions = QHBoxLayout()
-        self.ai_note = QLabel("AI explanations are not configured.")
-        self.ai_note.setObjectName("TinyLabel")
-        view_diagnosis = QPushButton("View analysis")
+        view_diagnosis = QPushButton("View evidence", objectName="PrimaryButton")
         view_diagnosis.setCursor(Qt.CursorShape.PointingHandCursor)
         view_diagnosis.clicked.connect(lambda: self._navigate(2))
-        insight_actions.addWidget(self.ai_note, 1)
+        insight_actions.addStretch(1)
         insight_actions.addWidget(view_diagnosis)
         self.insight_card.content.addWidget(self.insight_title)
         self.insight_card.content.addWidget(self.insight_body)
@@ -855,17 +853,6 @@ class MainWindow(QMainWindow):
         self.network_timeout.setValue(self.settings.network_timeout_seconds)
         form.addRow("Network timeout", self.network_timeout)
 
-        self.baseline_enabled = QCheckBox("Use this device’s recent history as a personal baseline")
-        self.baseline_enabled.setChecked(self.settings.baseline_enabled)
-        form.addRow("Adaptive baseline", self.baseline_enabled)
-
-        self.baseline_margin = QDoubleSpinBox()
-        self.baseline_margin.setRange(0, 100)
-        self.baseline_margin.setDecimals(1)
-        self.baseline_margin.setSuffix(" percentage points")
-        self.baseline_margin.setValue(self.settings.baseline_deviation_pct)
-        form.addRow("Baseline allowance", self.baseline_margin)
-
         self.alerts_enabled = QCheckBox("Show desktop alerts for new resource or network issues")
         self.alerts_enabled.setChecked(self.settings.alerts_enabled)
         form.addRow("Notifications", self.alerts_enabled)
@@ -873,13 +860,6 @@ class MainWindow(QMainWindow):
         self.keep_in_tray = QCheckBox("Keep Diagnosys recording when I close the window")
         self.keep_in_tray.setChecked(self.settings.keep_in_tray)
         form.addRow("Background capture", self.keep_in_tray)
-
-        self.cpu_threshold = self._threshold_control(self.settings.cpu_alert_threshold)
-        self.memory_threshold = self._threshold_control(self.settings.memory_alert_threshold)
-        self.disk_threshold = self._threshold_control(self.settings.disk_alert_threshold)
-        form.addRow("CPU pressure at", self.cpu_threshold)
-        form.addRow("Memory pressure at", self.memory_threshold)
-        form.addRow("Disk use at", self.disk_threshold)
 
         card.content.addLayout(form)
         save = QPushButton("Save settings", objectName="PrimaryButton")
@@ -893,27 +873,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(note)
         layout.addStretch(1)
 
-    @staticmethod
-    def _threshold_control(value: float) -> QDoubleSpinBox:
-        control = QDoubleSpinBox()
-        control.setRange(50, 100)
-        control.setDecimals(1)
-        control.setSuffix(" %")
-        control.setValue(value)
-        return control
-
     def _make_detector(self) -> AnomalyDetector:
-        baselines = self.metric_repo.get_all_baselines() if self.settings.baseline_enabled else {}
-        thresholds = {
-            "cpu_percent": self.settings.cpu_alert_threshold,
-            "memory_percent": self.settings.memory_alert_threshold,
-            "disk_percent": self.settings.disk_alert_threshold,
-        }
-        return AnomalyDetector(
-            baselines=baselines,
-            thresholds=thresholds,
-            baseline_deviation_pct=self.settings.baseline_deviation_pct,
-        )
+        # No universal cutoffs: the detector uses sufficiently populated local baselines.
+        return AnomalyDetector(baselines=self.metric_repo.get_all_baselines())
 
     def save_settings(self) -> None:
         try:
@@ -929,11 +891,6 @@ class MainWindow(QMainWindow):
                 http_target=self.http_target.text().strip(),
                 alerts_enabled=self.alerts_enabled.isChecked(),
                 keep_in_tray=self.keep_in_tray.isChecked(),
-                baseline_enabled=self.baseline_enabled.isChecked(),
-                baseline_deviation_pct=self.baseline_margin.value(),
-                cpu_alert_threshold=self.cpu_threshold.value(),
-                memory_alert_threshold=self.memory_threshold.value(),
-                disk_alert_threshold=self.disk_threshold.value(),
             )
             updated.save()
         except (OSError, ValueError) as exc:
@@ -1140,7 +1097,7 @@ class MainWindow(QMainWindow):
             prune_db(self.db, self.settings.retention_days)
             self._last_prune_at = timestamp
 
-        if self.settings.baseline_enabled and timestamp - self._last_baseline_refresh >= timedelta(minutes=5):
+        if timestamp - self._last_baseline_refresh >= timedelta(minutes=5):
             self.detector.baselines = self.metric_repo.get_all_baselines(window_seconds=86400)
             self._last_baseline_refresh = timestamp
 
@@ -1259,6 +1216,14 @@ class MainWindow(QMainWindow):
                 self.insight_body.setText("Diagnosys needs a few more readings before it can say whether the recent pattern looks normal.")
                 self.insight_evidence.setText(f"{len(samples)} usable reading(s) available so far.")
                 return
+            baselines = self.metric_repo.get_all_baselines(window_seconds=86400)
+            ready = [item for item in baselines.values() if item.available]
+            if not ready:
+                count = max((item.sample_count for item in baselines.values()), default=0)
+                self.insight_title.setText("Learning this device's baseline")
+                self.insight_body.setText("Diagnosys needs at least 30 valid samples for a metric before it can flag unusual behaviour. No generic cutoff is substituted.")
+                self.insight_evidence.setText(f"Most-developed metric baseline: {count}/30 samples.")
+                return
             anomalies = self.anomaly_repo.query(window_seconds=3600)
             result = DiagnosticEngine().diagnose(anomalies, window_seconds=3600)
             self._render_insight(result)
@@ -1274,10 +1239,15 @@ class MainWindow(QMainWindow):
             self.insight_body.setText("The recent window has too few usable measurements for a health conclusion.")
             self.insight_evidence.setText("Keep monitoring or capture the issue while it is happening.")
             return
-        if result.status == "HEALTHY" or not hypothesis or hypothesis.category == "HEALTHY":
-            self.insight_title.setText("No unusual pattern detected")
-            self.insight_body.setText("No unusual readings were found in the last hour. Keep monitoring if the issue returns.")
-            self.insight_evidence.setText("Based on recent CPU, memory, and storage measurements.")
+        if result.status == "INSUFFICIENT_BASELINE":
+            self.insight_title.setText("Learning this device's baseline")
+            self.insight_body.setText("At least 30 valid samples are needed for a metric before Diagnosys can identify deviations.")
+            self.insight_evidence.setText("No global performance cutoff is substituted while history is incomplete.")
+            return
+        if result.status == "NO_ANOMALY" or not hypothesis:
+            self.insight_title.setText("No baseline deviation detected")
+            self.insight_body.setText("No monitored metric crossed its learned variation band. This does not prove every component is healthy.")
+            self.insight_evidence.setText("Personal baselines require sufficient local history for each metric.")
             return
 
         self.insight_title.setText(hypothesis.category.replace("_", " ").title())
@@ -2026,6 +1996,10 @@ class MainWindow(QMainWindow):
                     status="INSUFFICIENT_DATA", primary_hypothesis=None,
                     time_window=3600, data_quality="LIMITED",
                 )
+            baselines = MetricRepository(connection).get_all_baselines(window_seconds=86400)
+            if not any(item.available for item in baselines.values()):
+                return DiagnosisResult(status="INSUFFICIENT_BASELINE", primary_hypothesis=None,
+                    time_window=3600, data_quality="INSUFFICIENT_BASELINE")
             return DiagnosticEngine().diagnose(AnomalyRepository(connection).query(window_seconds=3600), window_seconds=3600)
         finally:
             connection.close()
@@ -2034,19 +2008,21 @@ class MainWindow(QMainWindow):
         lines: list[str] = []
         if result.status == "INSUFFICIENT_DATA":
             lines += ["Not enough evidence yet", "", "Diagnosys has fewer than five usable readings in the last hour. Keep monitoring or capture the problem while it is happening."]
-        elif result.status == "HEALTHY":
-            lines += ["Everything looks healthy", "", "No unusual system or network patterns were found in the selected time window.", "", "Keep monitoring if the slowdown returns."]
+        elif result.status == "INSUFFICIENT_BASELINE":
+            lines += ["Learning personal baselines", "", "Diagnosys needs at least 30 valid samples for a metric before it can flag deviations. Keep monitoring. No generic performance cutoff is used."]
+        elif result.status == "NO_ANOMALY":
+            lines += ["No unusual deviation detected", "", "No monitored metric crossed its learned personal variation band. This does not prove every component is healthy.", "", "Keep monitoring if the issue returns."]
         else:
             lines += [f"Status: {result.status}", ""]
         hypothesis = result.primary_hypothesis
-        if hypothesis and hypothesis.category != "HEALTHY":
+        if hypothesis:
             category = hypothesis.category
             explanations = {
                 "LOCAL_RESOURCE_CONTENTION": "One or more local resources are under sustained pressure. This can make applications feel slow, cause stuttering, or delay background tasks.",
                 "NETWORK_INSTABILITY": "The network is showing elevated latency or packet loss. This can cause slow pages, voice/video interruptions, and game lag.",
                 "UNKNOWN_ANOMALY": "The system recorded an unusual signal, but there is not enough evidence to identify a specific cause yet.",
             }
-            lines += [f"Likely cause: {category.replace('_', ' ').title()}", f"Confidence: {hypothesis.confidence}", "", explanations.get(category, "The diagnostic engine found an unusual pattern in recent measurements."), ""]
+            lines += [f"Observed pattern: {category.replace('_', ' ').title()}", "", explanations.get(category, "The diagnostic engine found an unusual pattern in recent measurements."), ""]
             if hypothesis.evidence:
                 lines += ["Evidence:"]
                 lines += [f"• {e.metric.replace('_', ' ').title()}: {e.observed_value:.1f} (expected around {e.expected_value:.1f})" for e in hypothesis.evidence]
@@ -2221,7 +2197,7 @@ class MainWindow(QMainWindow):
         if anomalies:
             lines.extend(f"• {item['category']} · {item['explanation']}" for item in anomalies)
         else:
-            lines.append("No anomaly crossed a configured threshold during the capture window.")
+            lines.append("No baseline-relative deviation was recorded during the capture window.")
         findings = evidence.get("findings", [])
         if findings:
             lines += ["", "INVESTIGATION FINDINGS"]
@@ -2560,8 +2536,7 @@ class MainWindow(QMainWindow):
                 "diagnosis": {
                     "status": diagnosis.status,
                     "primary_category": category,
-                    "confidence": diagnosis.primary_hypothesis.confidence if diagnosis.primary_hypothesis else None,
-                    "recommended_checks": diagnosis.primary_hypothesis.recommended_checks if diagnosis.primary_hypothesis else [],
+                     "recommended_checks": diagnosis.primary_hypothesis.recommended_checks if diagnosis.primary_hypothesis else [],
                 },
             }
             incident_id = IncidentRepository(connection).save(

@@ -98,14 +98,14 @@ class MetricRepository:
         rows = cursor.fetchall()
         values = [row['value'] for row in rows]
 
-        if len(values) < 5:
+        if len(values) < 30:
             return MetricBaseline(
                 metric_name=metric_name,
                 median=0.0, p95=0.0, min_val=0.0, max_val=0.0,
                 sample_count=len(values),
                 window_seconds=window_seconds,
                 available=False,
-                reason=f"Insufficient data: only {len(values)} samples (need at least 5)"
+                reason=f"Insufficient baseline history: {len(values)} samples (need at least 30)"
             )
 
         sorted_vals = sorted(values)
@@ -121,7 +121,8 @@ class MetricRepository:
             max_val=sorted_vals[-1],
             sample_count=len(values),
             window_seconds=window_seconds,
-            available=True
+            available=True,
+            mad=statistics.median(abs(value - statistics.median(sorted_vals)) for value in sorted_vals),
         )
 
     def get_all_baselines(self, window_seconds: int = 86400) -> Dict[str, MetricBaseline]:

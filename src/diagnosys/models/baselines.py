@@ -12,3 +12,4 @@ class MetricBaseline:
     window_seconds: int
     available: bool = True
     reason: Optional[str] = None
+    mad: float = 0.0

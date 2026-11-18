@@ -7,7 +7,7 @@ from diagnosys.collectors.system.disk import DiskCollector
 from diagnosys.collectors.system.uptime import UptimeCollector
 
 @patch("psutil.cpu_percent")
-@patch("psutil.cpu_freq")
+@patch("psutil.cpu_freq", create=True)
 @patch("psutil.getloadavg", create=True)
 def test_cpu_collector(mock_getloadavg, mock_cpu_freq, mock_cpu_percent):
     mock_cpu_percent.side_effect = [35.5, [30.0, 40.0]]

@@ -24,9 +24,8 @@ class Evidence:
 
 @dataclass
 class DiagnosisHypothesis:
+    """A transparent pattern assembled from observations, not a probability."""
     category: str
-    score: float
-    confidence: str
     evidence: List[Evidence] = field(default_factory=list)
     contradictory_evidence: List[Evidence] = field(default_factory=list)
     limitations: List[str] = field(default_factory=list)

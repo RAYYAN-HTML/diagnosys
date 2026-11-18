@@ -40,11 +40,6 @@ class Settings:
     http_target: str = "https://connectivitycheck.gstatic.com/generate_204"
     alerts_enabled: bool = True
     keep_in_tray: bool = False
-    baseline_enabled: bool = True
-    baseline_deviation_pct: float = 20.0
-    cpu_alert_threshold: float = 85.0
-    memory_alert_threshold: float = 90.0
-    disk_alert_threshold: float = 95.0
 
     def __post_init__(self) -> None:
         if self.refresh_seconds < 1:
@@ -66,12 +61,6 @@ class Settings:
         parsed_http_target = urlsplit(self.http_target)
         if parsed_http_target.scheme not in {"http", "https"} or not parsed_http_target.hostname or parsed_http_target.username:
             raise ValueError("http_target must be an http:// or https:// URL without embedded credentials")
-        if not math.isfinite(self.baseline_deviation_pct) or self.baseline_deviation_pct < 0:
-            raise ValueError("baseline_deviation_pct must be zero or greater")
-        for name in ("cpu_alert_threshold", "memory_alert_threshold", "disk_alert_threshold"):
-            value = getattr(self, name)
-            if not math.isfinite(value) or not 0 < value <= 100:
-                raise ValueError(f"{name} must be between 0 and 100")
 
     @classmethod
     def from_env(cls) -> "Settings":
