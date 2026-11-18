@@ -58,7 +58,10 @@ class ThermalCollector:
         except (OSError, RuntimeError, NotImplementedError, AttributeError, TypeError, ValueError, psutil.Error) as exc:
             return ThermalSnapshot(False, reason=f"Thermal telemetry unavailable: {exc}")
 
-        temperatures: list[ThermalReading] = []
+        if not isinstance(raw_temperatures, dict):
+            return ThermalSnapshot(False, reason="The operating system returned malformed temperature sensor data.")
+
+        temperatures: list[ThermalReading] =
         invalid_readings = 0
         for sensor, readings in raw_temperatures.items():
             try:
@@ -90,6 +93,9 @@ class ThermalCollector:
             except (OSError, RuntimeError, NotImplementedError, AttributeError, TypeError, ValueError, psutil.Error) as exc:
                 raw_fans = {}
                 fan_reason = f"Fan telemetry unavailable: {exc}"
+            if not isinstance(raw_fans, dict):
+                fan_reason = "The operating system returned malformed fan sensor data."
+                raw_fans = {}
             for sensor, readings in raw_fans.items():
                 try:
                     iterator = iter(readings)
