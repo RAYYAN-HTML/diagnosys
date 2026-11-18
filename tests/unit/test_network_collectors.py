@@ -37,7 +37,7 @@ def test_ping_collector_timeout(mock_run):
     assert metrics.packet_loss_percent == 100.0
     assert metrics.reason == "Command timed out"
 
-@patch("socket.gethostbyname")
+@patch("socket.getaddrinfo")
 def test_dns_collector_success(mock_gethostbyname):
     mock_gethostbyname.return_value = "8.8.8.8"
     
