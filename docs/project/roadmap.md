@@ -1,33 +1,26 @@
 # Diagnosys roadmap
 
-## Available now
+## Current direction
 
-- Problem-first home and guided symptom selection for slow PCs, game stutter, internet trouble, crashes, and overheating.
-- Native desktop dashboard for CPU, memory, disk, processes, uptime, and network activity.
-- On-demand ping, packet-loss, jitter, DNS, and HTTP checks.
-- Local SQLite history with configurable retention for measurements and anomalies.
-- Deterministic anomaly detection and ranked diagnosis with supporting evidence and limitations.
-- Persistent investigation capture with pre-capture history, user notes, resource and process timelines, Windows reliability events, ranked evidence, and symptom-specific next checks.
-- One-minute after-change comparisons, user-reported resolution tracking, local evidence questions, and redacted incident support bundles.
-- Saved incident bookmarks, runtime capability details, and Markdown/JSON report export.
-- Optional GPU and CPU-temperature readings when the machine exposes them.
-- Opt-in tray monitoring while the app window is closed.
+Diagnosys is an evidence-first, deterministic, local-first diagnostic application. It must not invent confidence percentages, probability scores, or universal performance cutoffs.
 
-## Next priorities
+## Priorities
 
-1. Make investigation timelines interactive, searchable, and filterable by symptom, process, and measurement.
-2. Add per-application session focus and deeper Windows change history for installs, drivers, startup items, and updates.
-3. Expand platform-specific sensors and network comparisons while keeping unavailable readings explicit.
-4. Add guided, reversible remediation with a clear preview and post-change verification; keep all system changes opt-in.
-5. Package signed installers and verify the app on Windows, macOS, and Linux.
+1. Complete the redesigned desktop experience with clear navigation, accessible charts, a unified timeline, and focused investigation views.
+2. Integrate thermal readings, fan telemetry, SMART/NVMe health, and per-process game-session data into the dashboard and incident timeline.
+3. Expand per-process resource attribution and correlate process activity with system and network measurements.
+4. Add optional frame-time/FPS collection through a dedicated, transparent telemetry provider. Do not infer FPS from CPU/GPU utilization.
+5. Improve personal baselines with robust statistics, seasonality-aware windows, and clear data sufficiency indicators.
+6. Add gateway, DNS, destination comparison, and route analysis without assuming that a failed ping proves an ISP fault.
+7. Add guided, reversible remediation with explicit confirmation and post-change verification.
+8. Package signed installers and verify supported platforms.
 
-## Longer term
+## Non-negotiable principles
 
-- Broader GPU, thermal, battery, and disk-health coverage where supported.
-- Route and hop-by-hop network diagnostics.
-- Background service mode with startup controls and resource-aware sampling.
-- Per-application history and resource/network correlation, including game frame-time capture where supported.
-- Optional notifications and integrations with explicit user control.
-- Optional local or hosted AI explanations that use only the selected structured evidence.
-
-All future work should preserve local-first storage, transparent rules, graceful handling of unavailable sensors, and the distinction between correlation and causation.
+- No cloud requirement or account.
+- No AI dependency in the diagnostic path.
+- No fabricated confidence score or causal claim.
+- No global hardcoded thresholds for performance diagnosis.
+- Missing telemetry is explicitly unavailable.
+- Collectors are read-only and isolated from the UI thread.
+- User-selected process monitoring only; no game injection or anti-cheat bypass.

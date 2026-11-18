@@ -1,115 +1,72 @@
+"""Evidence-first deterministic diagnosis. No probability or confidence scores."""
+from __future__ import annotations
+from collections import defaultdict
 from typing import List
-from diagnosys.models.diagnostics import Anomaly, DiagnosisResult, DiagnosisHypothesis, Evidence
 from diagnosys.correlation.engine import CorrelationEngine
+from diagnosys.models.diagnostics import Anomaly, DiagnosisHypothesis, DiagnosisResult, Evidence
 
 class DiagnosticEngine:
+    RESOURCE = {"CPU_PRESSURE", "MEMORY_PRESSURE", "DISK_PRESSURE"}
+    NETWORK = {"NETWORK_LATENCY", "NETWORK_JITTER", "PACKET_LOSS", "DNS_LATENCY", "HTTP_LATENCY"}
+
     def __init__(self):
         self.correlation_engine = CorrelationEngine()
-        
+
     def diagnose(self, anomalies: List[Anomaly], window_seconds: int = 60) -> DiagnosisResult:
         if not anomalies:
-            return DiagnosisResult(
-                status="HEALTHY",
-                primary_hypothesis=DiagnosisHypothesis(
-                    category="HEALTHY",
-                    score=1.0,
-                    confidence="High",
-                    evidence=[],
-                    recommended_checks=["Run monitor for a longer period if issues persist."]
-                ),
-                time_window=window_seconds
-            )
-            
-        insights = self.correlation_engine.correlate(anomalies)
-        categories = {anomaly.category for anomaly in anomalies}
-        correlation_limits = [
-            f"{insight} These signals overlap in time but do not prove causation."
-            for insight in insights
-        ]
-        hypotheses: list[DiagnosisHypothesis] = []
-
-        resource_categories = {"CPU_PRESSURE", "MEMORY_PRESSURE", "DISK_PRESSURE"}
-        resource_anomalies = [anomaly for anomaly in anomalies if anomaly.category in resource_categories]
-        if resource_anomalies:
+            return DiagnosisResult(status="NO_ANOMALY", primary_hypothesis=None,
+                                   time_window=window_seconds, data_quality="BASELINE_RELATIVE")
+        groups = defaultdict(list)
+        for item in anomalies:
+            if item.category in self.RESOURCE:
+                groups["LOCAL_RESOURCE_CONTENTION"].append(item)
+            elif item.category in self.NETWORK:
+                groups["NETWORK_INSTABILITY"].append(item)
+            else:
+                groups[f"OBSERVED_{item.category}"].append(item)
+        correlations = self.correlation_engine.correlate(anomalies)
+        hypotheses = []
+        for category, observations in groups.items():
             evidence = [
-                Evidence(
-                    metric=anomaly.metric,
-                    observed_value=anomaly.observed_value,
-                    expected_value=anomaly.expected_value,
-                    time_window=window_seconds,
-                    direction="HIGH",
-                    strength="Moderate",
-                )
-                for anomaly in resource_anomalies
+                Evidence(metric=item.metric, observed_value=item.observed_value,
+                         expected_value=item.expected_value, time_window=window_seconds,
+                         direction="HIGH",
+                         strength="Repeated observation" if sum(x.metric == item.metric for x in observations) > 1 else "Single observation")
+                for item in observations
             ]
-            resource_metrics = {anomaly.metric for anomaly in resource_anomalies}
+            limitations = [
+                "A baseline deviation identifies unusual behaviour, not necessarily a fault.",
+                "Time overlap and shared symptoms do not prove that one signal caused another.",
+                *correlations,
+            ]
+            hypotheses.append(DiagnosisHypothesis(
+                category=category, evidence=evidence,
+                limitations=list(dict.fromkeys(limitations)),
+                recommended_checks=self._checks(category, observations),
+            ))
+        # Transparent ordering by observed evidence count, not a confidence score.
+        hypotheses.sort(key=lambda item: (-len(item.evidence), item.category))
+        return DiagnosisResult(status="INVESTIGATE", primary_hypothesis=hypotheses[0],
+                               alternatives=hypotheses[1:], time_window=window_seconds,
+                               data_quality="BASELINE_RELATIVE")
+
+    @staticmethod
+    def _checks(category: str, observations: list[Anomaly]) -> list[str]:
+        metrics = {item.metric for item in observations}
+        if category == "LOCAL_RESOURCE_CONTENTION":
             checks = []
-            if "CPU_PRESSURE" in categories:
-                checks.append("Review Overview → Top processes for an unusually busy application.")
-            if "MEMORY_PRESSURE" in categories:
-                checks.append("Review the highest-memory processes and close anything you do not need.")
-            if "DISK_PRESSURE" in categories:
-                checks.append("Check free space on the system drive and remove or move files if it is nearly full.")
-            hypotheses.append(DiagnosisHypothesis(
-                category="LOCAL_RESOURCE_CONTENTION",
-                score=min(0.92, 0.62 + 0.12 * (len(resource_metrics) - 1)),
-                confidence="High" if len(resource_metrics) >= 2 else "Moderate",
-                evidence=evidence,
-                limitations=correlation_limits + [
-                    "Measurements show resource pressure but may not identify its underlying cause."
-                ],
-                recommended_checks=checks,
-            ))
-
-        network_categories = {
-            "NETWORK_LATENCY", "NETWORK_JITTER", "PACKET_LOSS", "DNS_LATENCY", "HTTP_LATENCY"
-        }
-        network_anomalies = [anomaly for anomaly in anomalies if anomaly.category in network_categories]
-        if network_anomalies:
-            evidence = [
-                Evidence(
-                    metric=anomaly.metric,
-                    observed_value=anomaly.observed_value,
-                    expected_value=anomaly.expected_value,
-                    time_window=window_seconds,
-                    direction="HIGH",
-                    strength="Moderate",
-                )
-                for anomaly in network_anomalies
+            if "cpu_percent" in metrics:
+                checks.append("Inspect the process timeline and per-core CPU activity during the same interval.")
+            if "memory_percent" in metrics:
+                checks.append("Inspect the largest memory consumers and available memory over time.")
+            if "disk_percent" in metrics:
+                checks.append("Check the affected volume's free space and storage health.")
+            checks.append("Compare the same workload against a later capture to see whether the deviation persists.")
+            return checks
+        if category == "NETWORK_INSTABILITY":
+            return [
+                "Repeat the measurement against the local gateway and a second independent destination.",
+                "Compare DNS, latency, jitter, and packet loss before changing network settings.",
+                "Check whether the issue affects one destination or multiple services.",
             ]
-            network_domains = {
-                "ping" if anomaly.metric in {"ping_median_ms", "ping_jitter_ms", "packet_loss_percent"}
-                else anomaly.metric.removesuffix("_latency_ms")
-                for anomaly in network_anomalies
-            }
-            hypotheses.append(DiagnosisHypothesis(
-                category="NETWORK_INSTABILITY",
-                score=min(0.92, 0.62 + 0.12 * (len(network_domains) - 1)),
-                confidence="High" if len(network_domains) >= 2 else "Moderate",
-                evidence=evidence,
-                limitations=correlation_limits + [
-                    "A network check measures the selected destination and may not represent every service."
-                ],
-                recommended_checks=[
-                    "Repeat the check and compare another destination.",
-                    "If only one service is affected, check that service before changing network settings.",
-                ],
-            ))
-
-        if not hypotheses:
-            hypotheses.append(DiagnosisHypothesis(
-                category="UNKNOWN_ANOMALY",
-                score=0.5,
-                confidence="Low",
-                evidence=[],
-                limitations=correlation_limits,
-                recommended_checks=["Review the recent anomaly details and collect another sample."],
-            ))
-
-        hypotheses.sort(key=lambda hypothesis: hypothesis.score, reverse=True)
-        return DiagnosisResult(
-            status="WARNING",
-            primary_hypothesis=hypotheses[0],
-            alternatives=hypotheses[1:],
-            time_window=window_seconds
-        )
+        return ["Collect another sample and inspect the raw evidence for this metric."]
