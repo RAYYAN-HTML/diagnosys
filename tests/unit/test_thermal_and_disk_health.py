@@ -3,7 +3,7 @@ from diagnosys.collectors.system.thermal import ThermalCollector
 from diagnosys.collectors.system.disk_health import DiskHealthCollector
 
 def test_thermal_collector_reports_unavailable_when_no_sensor_api():
-    with patch("diagnosys.collectors.system.thermal.psutil.sensors_temperatures", None):
+    with patch("diagnosys.collectors.system.thermal.psutil.sensors_temperatures", None, create=True):
         result = ThermalCollector().collect()
     assert not result.available
     assert result.reason
