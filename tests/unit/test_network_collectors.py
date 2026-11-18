@@ -38,8 +38,8 @@ def test_ping_collector_timeout(mock_run):
     assert metrics.reason == "Command timed out"
 
 @patch("socket.getaddrinfo")
-def test_dns_collector_success(mock_gethostbyname):
-    mock_gethostbyname.return_value = "8.8.8.8"
+def test_dns_collector_success(mock_getaddrinfo):
+    mock_getaddrinfo.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))]
     
     collector = DNSCollector()
     metrics = collector.collect()
@@ -48,9 +48,9 @@ def test_dns_collector_success(mock_gethostbyname):
     assert metrics.timeout is False
     assert metrics.latency_ms is not None
 
-@patch("socket.gethostbyname")
-def test_dns_collector_timeout(mock_gethostbyname):
-    mock_gethostbyname.side_effect = socket.timeout("timed out")
+@patch("socket.getaddrinfo")
+def test_dns_collector_timeout(mock_getaddrinfo):
+    mock_getaddrinfo.side_effect = socket.timeout("timed out")
     
     collector = DNSCollector()
     metrics = collector.collect()
@@ -87,7 +87,7 @@ def test_http_collector_timeout(mock_urlopen):
 
 def test_ping_parser_does_not_double_count_less_than_one_ms():
     collector = PingCollector(count=2)
-    assert collector._parse_time("Reply time<1ms\\nReply time=2.5ms") == [0.5, 2.5]
+    assert collector._parse_time("Reply time<1ms\nReply time=2.5ms") == [0.5, 2.5]
 
 
 def test_dns_collector_rejects_invalid_hostname_and_timeout():
