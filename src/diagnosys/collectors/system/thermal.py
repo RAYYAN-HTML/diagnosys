@@ -59,17 +59,23 @@ class ThermalCollector:
             return ThermalSnapshot(False, reason=f"Thermal telemetry unavailable: {exc}")
 
         temperatures: list[ThermalReading] = []
+        invalid_readings = 0
         for sensor, readings in raw_temperatures.items():
             try:
                 iterator = iter(readings)
             except TypeError:
                 continue
             for reading in iterator:
-                current = _finite_nonnegative(getattr(reading, "current", None))
-                high = _finite_nonnegative(getattr(reading, "high", None))
-                critical = _finite_nonnegative(getattr(reading, "critical", None))
-                label = getattr(reading, "label", None) or sensor
+                try:
+                    current = _finite_nonnegative(getattr(reading, "current", None))
+                    high = _finite_nonnegative(getattr(reading, "high", None))
+                    critical = _finite_nonnegative(getattr(reading, "critical", None))
+                    label = getattr(reading, "label", None) or sensor
+                except Exception:
+                    invalid_readings += 1
+                    continue
                 if current is None and high is None and critical is None:
+                    invalid_readings += 1
                     continue
                 temperatures.append(
                     ThermalReading(str(sensor), str(label), current, high, critical)
@@ -95,7 +101,15 @@ class ThermalCollector:
                     if speed is not None:
                         fans.append(FanReading(str(sensor), str(label), speed))
 
+        issues = []
+        if invalid_readings:
+            issues.append(f"{invalid_readings} malformed or empty temperature reading(s) were skipped")
+        if fan_reason:
+            issues.append(fan_reason)
+        reason = "; ".join(issues) or None
         if not temperatures and not fans:
-            reason = fan_reason or "No valid temperature or fan readings were exposed by this device."
-            return ThermalSnapshot(False, reason=reason)
-        return ThermalSnapshot(True, tuple(temperatures), tuple(fans), fan_reason)
+            return ThermalSnapshot(
+                False,
+                reason=reason or "No valid temperature or fan readings were exposed by this device.",
+            )
+        return ThermalSnapshot(True, tuple(temperatures), tuple(fans), reason)
