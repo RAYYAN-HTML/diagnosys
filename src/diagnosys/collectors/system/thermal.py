@@ -96,8 +96,11 @@ class ThermalCollector:
                 except TypeError:
                     continue
                 for reading in iterator:
-                    speed = _finite_nonnegative(getattr(reading, "current", None))
-                    label = getattr(reading, "label", None) or sensor
+                    try:
+                        speed = _finite_nonnegative(getattr(reading, "current", None))
+                        label = getattr(reading, "label", None) or sensor
+                    except Exception:
+                        continue
                     if speed is not None:
                         fans.append(FanReading(str(sensor), str(label), speed))
 
