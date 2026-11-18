@@ -29,7 +29,7 @@ class PingCollector(Collector):
                 continue
             if math.isfinite(value) and value >= 0:
                 times.append(value)
-        for match in re.finditer(r"time<([0-9]+(?:\\.[0-9]+)?)\\s*ms", output, re.IGNORECASE):
+        for match in re.finditer(r"time<([0-9]+(?:\.[0-9]+)?)\s*ms", output, re.IGNORECASE):
             try:
                 upper_bound = float(match.group(1))
             except ValueError:
