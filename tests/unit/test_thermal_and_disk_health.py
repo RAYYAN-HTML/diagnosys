@@ -192,3 +192,20 @@ def test_thermal_collector_keeps_fan_data_when_temperature_api_is_missing():
     assert result.available
     assert result.fans[0].speed_rpm == 900.0
     assert "Temperature sensors are not exposed" in result.reason
+
+
+def test_thermal_collector_preserves_valid_subzero_temperatures():
+    reading = SimpleNamespace(label="Ambient", current=-5.5, high=45.0, critical=60.0)
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value={"ambient": [reading]},
+        create=True,
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+    assert result.available
+    assert result.temperatures[0].temperature_c == -5.5
