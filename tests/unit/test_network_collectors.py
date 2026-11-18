@@ -83,3 +83,16 @@ def test_http_collector_timeout(mock_urlopen):
     
     assert metrics.success is False
     assert metrics.timeout is True
+
+
+def test_ping_parser_does_not_double_count_less_than_one_ms():
+    collector = PingCollector(count=2)
+    assert collector._parse_time("Reply time<1ms\\nReply time=2.5ms") == [0.5, 2.5]
+
+
+def test_dns_collector_rejects_invalid_hostname_and_timeout():
+    import pytest
+    with pytest.raises(ValueError, match="hostname"):
+        DNSCollector(target="invalid host name")
+    with pytest.raises(ValueError, match="timeout_sec"):
+        DNSCollector(timeout_sec=0)
