@@ -3,6 +3,7 @@ import platform
 import math
 import re
 import statistics
+import ipaddress
 from typing import List
 
 from diagnosys.collectors.base import Collector
@@ -10,11 +11,22 @@ from diagnosys.models.network import PingMetrics
 
 class PingCollector(Collector):
     def __init__(self, target: str = "8.8.8.8", count: int = 5, timeout_sec: float = 5):
+        if not isinstance(target, str) or not target.strip() or target.startswith("-") or any(ch.isspace() for ch in target):
+            raise ValueError("target must be a hostname or IP address, not an option or blank value")
+        try:
+            ipaddress.ip_address(target)
+        except ValueError:
+            if len(target) > 253 or any(
+                not label or len(label) > 63
+                or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+                for label in target.rstrip(".").split(".")
+            ):
+                raise ValueError("target must be a valid hostname or IP address")
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise ValueError("count must be a positive integer")
         self.target = target
         self.count = count
         self.timeout_sec = float(timeout_sec)
-        if self.count <= 0:
-            raise ValueError("count must be greater than zero")
         if not math.isfinite(self.timeout_sec) or self.timeout_sec <= 0:
             raise ValueError("timeout_sec must be a finite number greater than zero")
         
