@@ -15,7 +15,7 @@ class HTTPCollector(Collector):
         start_time = time.perf_counter()
         try:
             parsed = urllib.parse.urlsplit(self.target)
-            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
                 raise ValueError("HTTP test target must be an http:// or https:// URL without embedded credentials")
             req = urllib.request.Request(self.target, headers={'User-Agent': 'Diagnosys/0.1.0'})
             with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
