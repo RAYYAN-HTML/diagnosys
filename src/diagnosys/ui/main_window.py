@@ -853,10 +853,6 @@ class MainWindow(QMainWindow):
         self.network_timeout.setValue(self.settings.network_timeout_seconds)
         form.addRow("Network timeout", self.network_timeout)
 
-        self.baseline_enabled = QCheckBox("Use this device’s recent history as a personal baseline")
-        self.baseline_enabled.setChecked(self.settings.baseline_enabled)
-        form.addRow("Adaptive baseline", self.baseline_enabled)
-
         self.alerts_enabled = QCheckBox("Show desktop alerts for new resource or network issues")
         self.alerts_enabled.setChecked(self.settings.alerts_enabled)
         form.addRow("Notifications", self.alerts_enabled)
@@ -879,8 +875,7 @@ class MainWindow(QMainWindow):
 
     def _make_detector(self) -> AnomalyDetector:
         # No universal cutoffs: the detector uses sufficiently populated local baselines.
-        baselines = self.metric_repo.get_all_baselines() if self.settings.baseline_enabled else {}
-        return AnomalyDetector(baselines=baselines)
+        return AnomalyDetector(baselines=self.metric_repo.get_all_baselines())
 
     def save_settings(self) -> None:
         try:
@@ -896,7 +891,6 @@ class MainWindow(QMainWindow):
                 http_target=self.http_target.text().strip(),
                 alerts_enabled=self.alerts_enabled.isChecked(),
                 keep_in_tray=self.keep_in_tray.isChecked(),
-                baseline_enabled=self.baseline_enabled.isChecked(),
             )
             updated.save()
         except (OSError, ValueError) as exc:
@@ -1103,7 +1097,7 @@ class MainWindow(QMainWindow):
             prune_db(self.db, self.settings.retention_days)
             self._last_prune_at = timestamp
 
-        if self.settings.baseline_enabled and timestamp - self._last_baseline_refresh >= timedelta(minutes=5):
+        if timestamp - self._last_baseline_refresh >= timedelta(minutes=5):
             self.detector.baselines = self.metric_repo.get_all_baselines(window_seconds=86400)
             self._last_baseline_refresh = timestamp
 
@@ -1222,6 +1216,14 @@ class MainWindow(QMainWindow):
                 self.insight_body.setText("Diagnosys needs a few more readings before it can say whether the recent pattern looks normal.")
                 self.insight_evidence.setText(f"{len(samples)} usable reading(s) available so far.")
                 return
+            baselines = self.metric_repo.get_all_baselines(window_seconds=86400)
+            ready = [item for item in baselines.values() if item.available]
+            if not ready:
+                count = max((item.sample_count for item in baselines.values()), default=0)
+                self.insight_title.setText("Learning this device's baseline")
+                self.insight_body.setText("Diagnosys needs at least 30 valid samples for a metric before it can flag unusual behaviour. No generic cutoff is substituted.")
+                self.insight_evidence.setText(f"Most-developed metric baseline: {count}/30 samples.")
+                return
             anomalies = self.anomaly_repo.query(window_seconds=3600)
             result = DiagnosticEngine().diagnose(anomalies, window_seconds=3600)
             self._render_insight(result)
@@ -1236,6 +1238,11 @@ class MainWindow(QMainWindow):
             self.insight_title.setText("Collecting enough evidence")
             self.insight_body.setText("The recent window has too few usable measurements for a health conclusion.")
             self.insight_evidence.setText("Keep monitoring or capture the issue while it is happening.")
+            return
+        if result.status == "INSUFFICIENT_BASELINE":
+            self.insight_title.setText("Learning this device's baseline")
+            self.insight_body.setText("At least 30 valid samples are needed for a metric before Diagnosys can identify deviations.")
+            self.insight_evidence.setText("No global performance cutoff is substituted while history is incomplete.")
             return
         if result.status == "NO_ANOMALY" or not hypothesis:
             self.insight_title.setText("No baseline deviation detected")
@@ -1989,6 +1996,10 @@ class MainWindow(QMainWindow):
                     status="INSUFFICIENT_DATA", primary_hypothesis=None,
                     time_window=3600, data_quality="LIMITED",
                 )
+            baselines = MetricRepository(connection).get_all_baselines(window_seconds=86400)
+            if not any(item.available for item in baselines.values()):
+                return DiagnosisResult(status="INSUFFICIENT_BASELINE", primary_hypothesis=None,
+                    time_window=3600, data_quality="INSUFFICIENT_BASELINE")
             return DiagnosticEngine().diagnose(AnomalyRepository(connection).query(window_seconds=3600), window_seconds=3600)
         finally:
             connection.close()
@@ -1997,6 +2008,8 @@ class MainWindow(QMainWindow):
         lines: list[str] = []
         if result.status == "INSUFFICIENT_DATA":
             lines += ["Not enough evidence yet", "", "Diagnosys has fewer than five usable readings in the last hour. Keep monitoring or capture the problem while it is happening."]
+        elif result.status == "INSUFFICIENT_BASELINE":
+            lines += ["Learning personal baselines", "", "Diagnosys needs at least 30 valid samples for a metric before it can flag deviations. Keep monitoring. No generic performance cutoff is used."]
         elif result.status == "NO_ANOMALY":
             lines += ["No unusual deviation detected", "", "No monitored metric crossed its learned personal variation band. This does not prove every component is healthy.", "", "Keep monitoring if the issue returns."]
         else:

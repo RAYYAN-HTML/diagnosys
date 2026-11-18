@@ -40,7 +40,6 @@ class Settings:
     http_target: str = "https://connectivitycheck.gstatic.com/generate_204"
     alerts_enabled: bool = True
     keep_in_tray: bool = False
-    baseline_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.refresh_seconds < 1:

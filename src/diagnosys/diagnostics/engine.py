@@ -13,6 +13,8 @@ class DiagnosticEngine:
         self.correlation_engine = CorrelationEngine()
 
     def diagnose(self, anomalies: List[Anomaly], window_seconds: int = 60) -> DiagnosisResult:
+        # Ignore legacy anomaly rows created by the former global-cutoff engine.
+        anomalies = [item for item in anomalies if item.rule_id.endswith("_personal_baseline_deviation")]
         if not anomalies:
             return DiagnosisResult(status="NO_ANOMALY", primary_hypothesis=None,
                                    time_window=window_seconds, data_quality="BASELINE_RELATIVE")

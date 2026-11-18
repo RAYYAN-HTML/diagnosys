@@ -13,8 +13,8 @@ def test_no_anomaly_is_not_reported_as_proven_healthy():
 def test_hypothesis_has_evidence_not_arbitrary_probability():
     now = datetime.now(timezone.utc)
     anomalies = [
-        Anomaly(now, "CPU_PRESSURE", "WARNING", "cpu_percent", 98.0, 70.0, "cpu_baseline", "CPU deviation"),
-        Anomaly(now, "CPU_PRESSURE", "WARNING", "cpu_percent", 96.0, 70.0, "cpu_baseline", "CPU deviation"),
+        Anomaly(now, "CPU_PRESSURE", "WARNING", "cpu_percent", 98.0, 70.0, "cpu_percent_personal_baseline_deviation", "CPU deviation"),
+        Anomaly(now, "CPU_PRESSURE", "WARNING", "cpu_percent", 96.0, 70.0, "cpu_percent_personal_baseline_deviation", "CPU deviation"),
     ]
     result = DiagnosticEngine().diagnose(anomalies, 60)
     assert result.status == "INVESTIGATE"
