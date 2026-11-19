@@ -1,59 +1,58 @@
 # Diagnosys Development Stages
 
-This document distinguishes connected implementation from work still planned.
+This document distinguishes connected implementation, automated verification, and physical validation.
 
 ## Connected foundation
 
-- PySide6 desktop application with background collection.
-- CPU, memory, disk activity, GPU (where supported), uptime, network, and process monitoring.
-- SQLite-backed metrics, process samples, incidents, and reports.
+The following workflows are implemented in the current codebase:
+
+- PySide6 desktop application with background collection and dedicated pages.
+- CPU, memory, disk activity, GPU (currently NVIDIA `nvidia-smi` where supported), uptime, network, and process monitoring.
+- SQLite-backed metrics, process samples, incidents, hardware history, gaming sessions, and reports.
 - Deterministic personal-baseline anomaly detection and evidence-led investigations.
-- Capability reporting and graceful handling of unsupported telemetry.
-- Dedicated Thermal and Disk Health pages with background collection and local history.
-- SMART/NVMe drive discovery through optional smartmontools.
-- Dedicated Gaming page with configured process selection, session lifecycle, process resource history, and comparisons.
-- Dedicated Processes page with start time, duration, threads, disk I/O, and historical samples.
-- Dedicated Performance page with live resource readings and recent metric history.
+- Capability reporting and explicit unavailable states for unsupported telemetry.
+- Thermal and fan collection through psutil where the OS exposes it, with persisted history and sensor-reported limits.
+- Read-only SMART/NVMe discovery and health queries through optional smartmontools.
+- Configured game-process sessions with lifecycle, process resource history, system context, and comparisons.
+- Dedicated Overview, Performance, Processes, Thermal, Disk Health, Gaming, Network, Diagnostics, History, Capabilities, and Settings workflows.
+- Local reports and incident capture with redaction support.
+- Versioned SQLite migrations, including nullable metric values for unavailable readings.
 
-## Remaining implementation stages
+## Remaining validation and release stages
 
-### 1. Finish thermal diagnostics
-- Improve sensor identity and CPU/GPU mapping across platforms.
-- Expand sustained thermal findings with reliable clock and workload context.
-- Add UI tests and verify sensor freshness and history behavior on supported hardware.
-- Do not infer throttling from temperature alone.
+### 1. Physical hardware validation
+- Validate CPU/platform thermal and fan sensors on supported hardware.
+- Validate NVIDIA GPU telemetry, multiple GPU systems, hybrid graphics, and unsupported GPU vendors.
+- Validate SMART/NVMe health on ATA and NVMe devices, USB bridges, and RAID controllers.
+- Record permissions, driver versions, OS versions, and unavailable interfaces.
+- Do not represent CI mocks as hardware validation.
 
-### 2. Finish disk health
-- Expand SMART parsing coverage across ATA, NVMe, RAID, and USB bridge variations.
-- Improve device identity and controller-specific diagnostics.
-- Test missing tools, permission denial, unsupported devices, malformed output, and actual SMART warnings.
-- Keep all health queries read-only and never infer healthy status from missing data.
+### 2. Gaming validation
+- Exercise multi-process games, launchers, helper processes, crashes, and rapid restarts.
+- Confirm process lifecycle and session boundaries against actual launches.
+- Validate GPU context and process association where OS/vendor telemetry supports it.
+- Keep FPS and frame-time unavailable until a real, documented source is integrated.
 
-### 3. Finish gaming diagnostics
-- Improve process matching and session lifecycle around multi-process games.
-- Add more robust session comparisons and background process correlation.
-- Investigate supported vendor telemetry sources for GPU clock and frame-time only when reliable.
-- Continue to label FPS/frame-time unavailable until an actual supported source is integrated.
+### 3. Diagnostic and network validation
+- Validate baselines with longer monitoring histories and sparse/partial telemetry.
+- Review false positives and ensure recommendations remain traceable to evidence.
+- Test network diagnostics on filtered ICMP, DNS failures, captive portals, IPv4, and IPv6.
+- Never infer ISP failure from a failed ping alone.
 
-### 4. Complete UI decomposition
-- Keep the main window focused on application shell, task coordination, and cross-page actions.
-- Continue extracting remaining orchestration and dialogs from `ui/main_window.py`.
-- Add dedicated Performance, History, and Overview modules with page-level UI tests.
-- Preserve existing network and investigation workflows.
+### 4. Desktop quality and architecture
+- Exercise all pages on Windows, macOS, and Linux desktop environments.
+- Review accessibility, keyboard navigation, long-running chart performance, memory use, shutdown, and worker cleanup.
+- Continue extracting modules only where responsibility boundaries improve.
 
-### 5. Improve evidence and history
-- Correlate process activity with resource and investigation timelines.
-- Add more useful before/after and cross-session comparisons.
-- Ensure every recommendation points to collected evidence and states limitations.
-- Review remaining diagnostic rules for unjustified fixed thresholds.
+### 5. Release readiness
+- Build and smoke-test installers/packages on each target OS.
+- Test upgrade and uninstall behavior while preserving local history.
+- Review dependencies, licensing, version metadata, and distribution notices.
+- Keep platform claims limited to environments actually tested.
 
-### 6. Reliability and release readiness
-- Test collectors with mocked hardware and external commands.
-- Test SQLite migrations against existing databases.
-- Exercise missing permissions, missing tools, unsupported hardware, and partial telemetry.
-- Run the full test suite and configured lint/type checks.
-- Validate supported platforms and document limitations.
-- Keep changes in reviewable pull requests.
+## Automated verification
+
+GitHub Actions runs Windows, macOS, and Ubuntu with Python 3.11 and 3.12. CI compiles source and tests, builds Python distributions, and runs pytest. CI is useful for repeatable software verification but cannot prove physical sensor availability or SMART pass-through.
 
 ## Non-goals
 
@@ -63,4 +62,4 @@ This document distinguishes connected implementation from work still planned.
 
 ## Completion criteria
 
-A feature is complete only when collection, background execution, persistence, diagnostics, UI, failure states, tests, and documentation are connected. A standalone collector or visual page alone does not count.
+Release readiness requires passing CI, successful package smoke tests on target platforms, reviewed documentation and dependencies, and a clearly recorded physical hardware validation matrix. Any hardware not physically tested must remain explicitly unverified.

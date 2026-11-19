@@ -37,9 +37,9 @@ def test_ping_collector_timeout(mock_run):
     assert metrics.packet_loss_percent == 100.0
     assert metrics.reason == "Command timed out"
 
-@patch("socket.gethostbyname")
-def test_dns_collector_success(mock_gethostbyname):
-    mock_gethostbyname.return_value = "8.8.8.8"
+@patch("socket.getaddrinfo")
+def test_dns_collector_success(mock_getaddrinfo):
+    mock_getaddrinfo.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))]
     
     collector = DNSCollector()
     metrics = collector.collect()
@@ -48,9 +48,9 @@ def test_dns_collector_success(mock_gethostbyname):
     assert metrics.timeout is False
     assert metrics.latency_ms is not None
 
-@patch("socket.gethostbyname")
-def test_dns_collector_timeout(mock_gethostbyname):
-    mock_gethostbyname.side_effect = socket.timeout("timed out")
+@patch("socket.getaddrinfo")
+def test_dns_collector_timeout(mock_getaddrinfo):
+    mock_getaddrinfo.side_effect = socket.timeout("timed out")
     
     collector = DNSCollector()
     metrics = collector.collect()
@@ -83,3 +83,55 @@ def test_http_collector_timeout(mock_urlopen):
     
     assert metrics.success is False
     assert metrics.timeout is True
+
+
+def test_ping_parser_does_not_double_count_less_than_one_ms():
+    collector = PingCollector(count=2)
+    assert collector._parse_time("Reply time<1ms\nReply time=2.5ms") == [0.5, 2.5]
+
+
+def test_dns_collector_rejects_invalid_hostname_and_timeout():
+    import pytest
+    with pytest.raises(ValueError, match="hostname"):
+        DNSCollector(target="invalid host name")
+    with pytest.raises(ValueError, match="timeout_sec"):
+        DNSCollector(timeout_sec=0)
+
+
+def test_dns_explicit_server_uses_bounded_socket_timeout_and_validates_response():
+    import struct
+
+    fake_socket = MagicMock()
+    fake_socket.__enter__.return_value = fake_socket
+
+    def respond(_size):
+        query = fake_socket.sendto.call_args.args[0]
+        query_id = struct.unpack("!H", query[:2])[0]
+        return struct.pack("!HHHHHH", query_id, 0x8180, 1, 1, 0, 0), ("1.1.1.1", 53)
+
+    fake_socket.recvfrom.side_effect = respond
+    with patch("diagnosys.collectors.network.dns.socket.socket", return_value=fake_socket):
+        metrics = DNSCollector(target="example.com", server="1.1.1.1", timeout_sec=1.25).collect()
+
+    assert metrics.success
+    assert metrics.server == "1.1.1.1"
+    fake_socket.settimeout.assert_called_once_with(1.25)
+
+
+def test_dns_explicit_server_rejects_truncated_udp_response():
+    import struct
+
+    fake_socket = MagicMock()
+    fake_socket.__enter__.return_value = fake_socket
+
+    def respond(_size):
+        query = fake_socket.sendto.call_args.args[0]
+        query_id = struct.unpack("!H", query[:2])[0]
+        return struct.pack("!HHHHHH", query_id, 0x8380, 1, 0, 0, 0), ("1.1.1.1", 53)
+
+    fake_socket.recvfrom.side_effect = respond
+    with patch("diagnosys.collectors.network.dns.socket.socket", return_value=fake_socket):
+        metrics = DNSCollector(target="example.com", server="1.1.1.1").collect()
+
+    assert not metrics.success
+    assert "truncated" in metrics.reason

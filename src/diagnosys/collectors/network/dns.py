@@ -1,17 +1,36 @@
 import socket
 import ipaddress
-import random
+import secrets
 import struct
 import time
+import math
+import re
 
 from diagnosys.collectors.base import Collector
 from diagnosys.models.network import DNSMetrics
 
 class DNSCollector(Collector):
     def __init__(self, target: str = "google.com", timeout_sec: float = 2.0, server: str | None = None):
-        self.target = target
-        self.timeout_sec = timeout_sec
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError("target must be a non-empty hostname")
+        if not math.isfinite(float(timeout_sec)) or float(timeout_sec) <= 0:
+            raise ValueError("timeout_sec must be a finite number greater than zero")
+        normalized_target = target.rstrip(".")
+        labels = normalized_target.split(".")
+        if len(normalized_target) > 253 or any(
+            not label or len(label.encode("idna")) > 63
+            or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+            for label in labels
+        ):
+            raise ValueError("The DNS target is not a valid hostname")
+        self.target = normalized_target
+        self.timeout_sec = float(timeout_sec)
         self.server = server.strip() if server else None
+        if self.server:
+            try:
+                ipaddress.ip_address(self.server)
+            except ValueError as exc:
+                raise ValueError("server must be an IP address") from exc
 
     def _query_server(self) -> None:
         server = ipaddress.ip_address(self.server)
@@ -19,7 +38,7 @@ class DNSCollector(Collector):
         if not labels or any(not label or len(label.encode("idna")) > 63 for label in labels):
             raise ValueError("The DNS target is not a valid hostname")
         question = b"".join(bytes((len(label.encode("idna")),)) + label.encode("idna") for label in labels) + b"\x00\x00\x01\x00\x01"
-        identifier = random.randrange(0, 65536)
+        identifier = secrets.randbelow(65536)
         packet = struct.pack("!HHHHHH", identifier, 0x0100, 1, 0, 0, 0) + question
         family = socket.AF_INET6 if server.version == 6 else socket.AF_INET
         with socket.socket(family, socket.SOCK_DGRAM) as client:
@@ -30,19 +49,22 @@ class DNSCollector(Collector):
         if len(response) < 12 or struct.unpack("!H", response[:2])[0] != identifier:
             raise OSError("DNS server returned an invalid response")
         flags = struct.unpack("!H", response[2:4])[0]
+        if not flags & 0x8000:
+            raise OSError("DNS server response did not contain the response flag")
+        if flags & 0x0200:
+            raise OSError("DNS server returned a truncated UDP response")
         if flags & 0x000F:
             raise OSError(f"DNS server returned response code {flags & 0x000F}")
         
     def collect(self) -> DNSMetrics:
         start_time = time.perf_counter()
-        previous_timeout = socket.getdefaulttimeout()
         try:
             if self.server:
                 self._query_server()
             else:
-                # System resolver access is retained when no explicit resolver is selected.
-                socket.setdefaulttimeout(self.timeout_sec)
-                socket.gethostbyname(self.target)
+                # The system resolver is used without changing process-wide socket
+                # defaults. This avoids races with unrelated network operations.
+                socket.getaddrinfo(self.target, None, type=socket.SOCK_STREAM)
             latency_ms = (time.perf_counter() - start_time) * 1000.0
             
             return DNSMetrics(
@@ -70,6 +92,3 @@ class DNSCollector(Collector):
                 reason=str(e),
                 server=self.server,
             )
-        finally:
-            if not self.server:
-                socket.setdefaulttimeout(previous_timeout)
