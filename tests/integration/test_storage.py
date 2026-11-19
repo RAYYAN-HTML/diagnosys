@@ -177,3 +177,30 @@ def test_unavailable_metric_is_stored_as_null_not_zero(db_conn):
     assert "No supported GPU telemetry" in stored["reason"]
     assert len(loaded) == 1
     assert loaded[0].value is None
+
+
+def test_metric_repository_query_supports_optional_limit(db_conn):
+    repository = MetricRepository(db_conn)
+    now = datetime.now(timezone.utc)
+    for index in range(5):
+        repository.save(MetricSample(
+            timestamp=now + timedelta(seconds=index),
+            metric_name="cpu_percent",
+            value=float(index),
+            unit="%",
+            source="test",
+            status=MetricStatus.OK,
+        ))
+
+    # No limit retains the original all-matching-rows behavior.
+    assert len(repository.query(window_seconds=3600)) == 5
+
+    limited = repository.query(window_seconds=3600, limit=2)
+    assert len(limited) == 2
+    assert [sample.value for sample in limited] == [4.0, 3.0]
+
+
+@pytest.mark.parametrize("invalid_limit", [0, -1, 1.5, True, "10"])
+def test_metric_repository_query_rejects_invalid_limit(db_conn, invalid_limit):
+    with pytest.raises(ValueError, match="positive integer"):
+        MetricRepository(db_conn).query(limit=invalid_limit)
