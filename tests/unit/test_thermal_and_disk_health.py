@@ -209,3 +209,72 @@ def test_thermal_collector_preserves_valid_subzero_temperatures():
             result = ThermalCollector().collect()
     assert result.available
     assert result.temperatures[0].temperature_c == -5.5
+
+
+
+def test_thermal_collector_keeps_valid_groups_when_one_reading_iterator_fails():
+    valid = SimpleNamespace(label="CPU Package", current=61.0, high=90.0, critical=105.0)
+
+    def broken_readings():
+        yield SimpleNamespace(label="First", current=55.0, high=None, critical=None)
+        raise RuntimeError("sensor driver iterator failed")
+
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value={"broken": broken_readings(), "coretemp": [valid]},
+        create=True,
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+
+    assert result.available
+    assert {item.label for item in result.temperatures} == {"First", "CPU Package"}
+    assert "unreadable temperature reading" in result.reason
+
+
+def test_thermal_collector_accepts_mapping_implementations_not_just_dicts():
+    from collections import UserDict
+
+    reading = SimpleNamespace(label="CPU Package", current=64.0, high=90.0, critical=105.0)
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value=UserDict({"coretemp": [reading]}),
+        create=True,
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value=UserDict({}),
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+
+    assert result.available
+    assert result.temperatures[0].temperature_c == 64.0
+
+
+def test_thermal_collector_keeps_valid_fans_when_one_fan_iterator_fails():
+    valid = SimpleNamespace(label="CPU Fan", current=1300)
+
+    def broken_readings():
+        yield SimpleNamespace(label="First Fan", current=900)
+        raise RuntimeError("fan driver iterator failed")
+
+    with patch(
+        "diagnosys.collectors.system.thermal.psutil.sensors_temperatures",
+        return_value={},
+        create=True,
+    ):
+        with patch(
+            "diagnosys.collectors.system.thermal.psutil.sensors_fans",
+            return_value={"broken": broken_readings(), "board": [valid]},
+            create=True,
+        ):
+            result = ThermalCollector().collect()
+
+    assert result.available
+    assert {item.label for item in result.fans} == {"First Fan", "CPU Fan"}
+    assert "unreadable fan reading" in result.reason
