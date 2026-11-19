@@ -30,21 +30,31 @@ class MetricRepository:
         ))
         self.conn.commit()
         
-    def query(self, window_seconds: int = 3600, metric_name: Optional[str] = None) -> List[MetricSample]:
+    def query(
+        self,
+        window_seconds: int = 3600,
+        metric_name: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[MetricSample]:
+        """Return recent metric samples, optionally bounded to the newest rows."""
         cursor = self.conn.cursor()
         query = "SELECT * FROM metrics WHERE timestamp >= ?"
         cutoff = serialize_timestamp(datetime.now(timezone.utc) - timedelta(seconds=window_seconds))
-        params = [cutoff]
-        
+        params: list[object] = [cutoff]
+
         if metric_name:
             query += " AND metric_name = ?"
             params.append(metric_name)
-            
+
         query += " ORDER BY timestamp DESC"
-        
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+                raise ValueError("limit must be a positive integer or None")
+            query += " LIMIT ?"
+            params.append(min(limit, 100000))
+
         cursor.execute(query, tuple(params))
         rows = cursor.fetchall()
-        
         return [self._from_row(row) for row in rows]
 
     def query_between(
